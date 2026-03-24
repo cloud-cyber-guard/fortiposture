@@ -39,7 +39,7 @@ def test_schema_creates_all_tables():
 def test_device_insert_and_query():
     engine = create_engine("sqlite:///:memory:")
     init_db(engine)
-    Session = sessionmaker(bind=engine)
+    Session = sessionmaker(engine)
     session = Session()
     device = Device(hostname="test-fw", vendor="fortigate", source_file_hash="abc123")
     session.add(device)

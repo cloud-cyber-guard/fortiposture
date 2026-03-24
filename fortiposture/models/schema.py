@@ -76,7 +76,7 @@ class Device(Base):
     source_file = Column(String)
     source_file_hash = Column(String)
     imported_at = Column(DateTime, default=datetime.utcnow)
-    vdom = Column(String)  # None = not VDOM-aware
+    vdom = Column(String, default="")  # "" = not VDOM-aware; VDOM configs use VDOM name
     vendor_data = Column(Text)  # JSON — stores system password-policy section
 
     __table_args__ = (
@@ -90,6 +90,8 @@ class Device(Base):
     admins = relationship("AdminAccount", back_populates="device")
     logging_configs = relationship("LoggingConfig", back_populates="device")
     analysis_runs = relationship("AnalysisRun", back_populates="device")
+    findings = relationship("Finding", back_populates="device")
+    scores = relationship("PostureScore", back_populates="device")
 
 
 class AddressObject(Base):
@@ -259,6 +261,7 @@ class Finding(Base):
     evidence = Column(Text)  # JSON
 
     analysis_run = relationship("AnalysisRun", back_populates="findings")
+    device = relationship("Device", back_populates="findings")
 
 
 class PostureScore(Base):
@@ -275,3 +278,4 @@ class PostureScore(Base):
     low_count = Column(Integer, default=0)
 
     analysis_run = relationship("AnalysisRun", back_populates="score")
+    device = relationship("Device", back_populates="scores")

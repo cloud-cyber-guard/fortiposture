@@ -40,5 +40,5 @@ def drop_db(engine) -> None:
 
 
 def get_session(engine) -> Session:
-    factory = sessionmaker(bind=engine)
+    factory = sessionmaker(engine)
     return factory()
