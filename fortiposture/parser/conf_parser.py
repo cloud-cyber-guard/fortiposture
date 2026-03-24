@@ -53,7 +53,7 @@ def _parse_value(raw: str) -> "str | list[str]":
     try:
         tokens = shlex.split(raw)
     except ValueError:
-        tokens = raw.split()
+        return raw
     if len(tokens) > 1 and has_quotes:
         return tokens
     return " ".join(tokens) if len(tokens) > 1 else tokens[0]
@@ -239,6 +239,12 @@ class FortiConfParser:
                 continue
 
             if stripped == "end":
+                if current_entry_id is not None and current_section is not None:
+                    logger.warning(
+                        "Edit entry '%s' in section '%s' closed by 'end' without 'next' — saving anyway",
+                        current_entry_id, current_section,
+                    )
+                    result[current_section][current_entry_id] = current_entry
                 if _nested:
                     # Return the collected data to the caller
                     return result
