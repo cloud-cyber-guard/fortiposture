@@ -20,6 +20,14 @@
 Usage: python fortiposture.py scan --input-dir ./configs --output report.html
 """
 
+import sys
+import os
+
+# Embedded Python on Windows does not add the script directory to sys.path
+# automatically. Insert it so the fortiposture package is importable regardless
+# of where python.exe lives relative to this file.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from fortiposture.cli import app
 
 if __name__ == "__main__":
