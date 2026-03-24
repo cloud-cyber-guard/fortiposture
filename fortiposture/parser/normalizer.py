@@ -20,7 +20,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 from sqlalchemy.orm import Session
 from fortiposture.models.schema import (
     Device, AddressObject, ServiceObject, FirewallPolicy,
@@ -45,6 +45,23 @@ def _listify(val) -> list:
     return [val]
 
 
+def _parse_int(val) -> Optional[int]:
+    """Parse int from string, stripping quotes and whitespace."""
+    if val is None:
+        return None
+    try:
+        return int(str(val).strip().strip('"'))
+    except (ValueError, TypeError):
+        return None
+
+
+def _strip_quotes(val) -> Optional[str]:
+    """Strip surrounding quotes from parsed string values."""
+    if val is None:
+        return None
+    return str(val).strip('"')
+
+
 def _parse_port_range(portrange_str: str) -> Tuple[Optional[int], Optional[int]]:
     """Parse '80', '1024-65535', '443' → (start, end)."""
     if not portrange_str:
@@ -61,7 +78,7 @@ def _parse_port_range(portrange_str: str) -> Tuple[Optional[int], Optional[int]]
 class FortiNormalizer:
     """Normalizes parsed config dict → ORM objects, writes to DB session."""
 
-    def ingest(self, parsed: dict, source_file: Path, session: Session) -> list[Device]:
+    def ingest(self, parsed: dict, source_file: Path, session: Session) -> List[Device]:
         """
         Ingest parsed config into DB. Returns list of Device objects created.
         Skips if device with same hostname+vdom+hash already exists.
@@ -70,14 +87,17 @@ class FortiNormalizer:
         file_hash = _file_hash(source_file)
 
         if "_vdoms" in parsed:
-            return self._ingest_vdom(parsed, source_file, file_hash, session)
-        return [self._ingest_single(parsed, source_file, file_hash, session, vdom="")]
+            devices = self._ingest_vdom(parsed, source_file, file_hash, session)
+        else:
+            devices = [self._ingest_single(parsed, source_file, file_hash, session, vdom="")]
+        session.commit()
+        return devices
 
     # ------------------------------------------------------------------
     # VDOM ingestion
     # ------------------------------------------------------------------
 
-    def _ingest_vdom(self, parsed: dict, source_file: Path, file_hash: str, session: Session) -> list[Device]:
+    def _ingest_vdom(self, parsed: dict, source_file: Path, file_hash: str, session: Session) -> List[Device]:
         devices = []
         global_data = {k: v for k, v in parsed.items() if k != "_vdoms"}
         for vdom_name, vdom_data in parsed["_vdoms"].items():
@@ -115,15 +135,19 @@ class FortiNormalizer:
         session.add(device)
         session.flush()  # get device.id
 
-        self._ingest_addresses(parsed, device, session)
-        self._ingest_services(parsed, device, session)
-        self._ingest_policies(parsed, device, session)
-        self._ingest_interfaces(parsed, device, session)
-        self._ingest_admins(parsed, device, session)
-        self._ingest_logging(parsed, device, session)
-
-        session.commit()
-        return device
+        try:
+            self._ingest_addresses(parsed, device, session)
+            self._ingest_services(parsed, device, session)
+            self._ingest_policies(parsed, device, session)
+            self._ingest_interfaces(parsed, device, session)
+            self._ingest_admins(parsed, device, session)
+            self._ingest_logging(parsed, device, session)
+            session.flush()
+            return device
+        except Exception as e:
+            logger.warning("Failed to ingest %s: %s", hostname, e)
+            session.rollback()
+            raise
 
     # ------------------------------------------------------------------
     # Addresses
@@ -135,10 +159,10 @@ class FortiNormalizer:
             value = data.get("subnet") or data.get("fqdn") or data.get("start-ip") or data.get("wildcard")
             obj = AddressObject(
                 device_id=device.id,
-                name=name,
+                name=_strip_quotes(name),
                 address_type=addr_type,
                 value=value,
-                comment=data.get("comment"),
+                comment=_strip_quotes(data.get("comment")),
                 vendor_data=json.dumps(data),
             )
             session.add(obj)
@@ -156,6 +180,8 @@ class FortiNormalizer:
         name = data.get("name", "")
         if name.lower() == "all":
             return "any"
+        if data.get("subnet"):
+            return "network"
         return "host"
 
     # ------------------------------------------------------------------
@@ -185,11 +211,11 @@ class FortiNormalizer:
             start, end = _parse_port_range(str(port_str).split()[0] if port_str else "")
             obj = ServiceObject(
                 device_id=device.id,
-                name=name,
+                name=_strip_quotes(name),
                 protocol=protocol,
                 port_range_start=start,
                 port_range_end=end,
-                comment=data.get("comment"),
+                comment=_strip_quotes(data.get("comment")),
                 vendor_data=json.dumps(data),
             )
             session.add(obj)
@@ -224,7 +250,7 @@ class FortiNormalizer:
                 device_id=device.id,
                 container_id=container.id,
                 native_id=native_id,
-                name=data.get("name"),
+                name=_strip_quotes(data.get("name")),
                 sequence_num=seq,
                 action=action,
                 status=status,
@@ -233,7 +259,7 @@ class FortiNormalizer:
                 src_interfaces=json.dumps(_listify(data.get("srcintf"))),
                 dst_interfaces=json.dumps(_listify(data.get("dstintf"))),
                 schedule=data.get("schedule"),
-                comments=data.get("comments"),
+                comments=_strip_quotes(data.get("comments")),
                 vendor_data=json.dumps(data),
             )
 
@@ -262,7 +288,7 @@ class FortiNormalizer:
             mask = parts[1] if len(parts) > 1 else None
             obj = Interface(
                 device_id=device.id,
-                name=name,
+                name=_strip_quotes(name),
                 ip_address=ip,
                 netmask=mask,
                 zone=data.get("zone"),
@@ -270,7 +296,7 @@ class FortiNormalizer:
                 status=data.get("status"),
                 allowaccess=json.dumps(_listify(data.get("allowaccess"))),
                 vdom=data.get("vdom"),
-                description=data.get("description"),
+                description=_strip_quotes(data.get("description")),
             )
             session.add(obj)
 
@@ -291,7 +317,7 @@ class FortiNormalizer:
 
             obj = AdminAccount(
                 device_id=device.id,
-                username=username,
+                username=_strip_quotes(username),
                 auth_type="local",
                 two_factor_auth=two_factor,
                 two_factor_auth_type=two_factor_type,
@@ -321,7 +347,7 @@ class FortiNormalizer:
                     log_type=log_type,
                     enabled=data.get("status", "disable") == "enable",
                     server=data.get("server"),
-                    port=int(data["port"]) if data.get("port", "").isdigit() else None,
+                    port=_parse_int(data.get("port")),
                     log_level=data.get("severity"),
                     traffic_log=data.get("traffic-log", "disable") == "enable",
                     event_log=data.get("event-log", "disable") == "enable",
