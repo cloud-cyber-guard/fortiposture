@@ -166,3 +166,36 @@ def test_https_only_not_flagged(db_session):
     devices = ingest_fixture("simple_policy.conf", db_session)
     findings = run_all_checks(devices[0], db_session)
     assert not any(f.check_id == "HTTP_ADMIN_ENABLED" for f in findings)
+
+
+def test_management_wan_name_flagged(db_session):
+    """Interface named 'wan1' with https+ssh → MANAGEMENT_ACCESS_EXPOSED."""
+    devices = ingest_fixture("management_exposed.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    mgmt_findings = [f for f in findings if f.check_id == "MANAGEMENT_ACCESS_EXPOSED"]
+    assert len(mgmt_findings) >= 1
+    ev = json.loads(mgmt_findings[0].evidence)
+    iface_names = [i["interface"] for i in ev["wan_interfaces"]]
+    assert "wan1" in iface_names
+
+
+def test_management_internal_not_flagged(db_session):
+    """Internal interface (192.168.x, non-WAN name) → not in MANAGEMENT_ACCESS_EXPOSED evidence."""
+    devices = ingest_fixture("management_exposed.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    mgmt_findings = [f for f in findings if f.check_id == "MANAGEMENT_ACCESS_EXPOSED"]
+    ev = json.loads(mgmt_findings[0].evidence)
+    iface_names = [i["interface"] for i in ev["wan_interfaces"]]
+    assert "internal" not in iface_names
+
+
+def test_management_public_ip_flagged(db_session):
+    """Interface with public IP (not RFC1918) → flagged even without WAN name."""
+    devices = ingest_fixture("management_exposed.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    mgmt_findings = [f for f in findings if f.check_id == "MANAGEMENT_ACCESS_EXPOSED"]
+    assert len(mgmt_findings) == 1  # one aggregated finding
+    ev = json.loads(mgmt_findings[0].evidence)
+    iface_names = [i["interface"] for i in ev["wan_interfaces"]]
+    # wan2-http has public IP (198.51.100.5) and WAN name → should be included
+    assert "wan2-http" in iface_names

@@ -134,6 +134,31 @@ def _parse_allowaccess(raw: Optional[str]) -> set:
     return result
 
 
+_WAN_NAME_PATTERNS = ("wan", "internet", "external", "outside", "untrust", "public")
+_RFC1918 = [
+    ipaddress.IPv4Network("10.0.0.0/8"),
+    ipaddress.IPv4Network("172.16.0.0/12"),
+    ipaddress.IPv4Network("192.168.0.0/16"),
+    ipaddress.IPv4Network("127.0.0.0/8"),
+    ipaddress.IPv4Network("169.254.0.0/16"),
+]
+
+
+def _is_wan_interface(iface) -> bool:
+    """True if interface is WAN-facing (by name pattern or public IP)."""
+    name = (iface.name or "").lower()
+    if any(pat in name for pat in _WAN_NAME_PATTERNS):
+        return True
+    if iface.ip_address:
+        try:
+            addr = ipaddress.IPv4Address(iface.ip_address)
+            if not any(addr in net for net in _RFC1918):
+                return True
+        except ValueError:
+            pass
+    return False
+
+
 # ------------------------------------------------------------------
 # Individual checks
 # ------------------------------------------------------------------
@@ -598,6 +623,49 @@ def check_http_admin_enabled(device: Device, session: Session) -> List[Finding]:
     )]
 
 
+def check_management_access_exposed(device: Device, session: Session) -> List[Finding]:
+    """Flag WAN-facing interfaces that allow management protocols (HTTPS, SSH, HTTP)."""
+    _MGMT_PROTOCOLS = {"https", "ssh", "http"}
+    exposed = []
+    for iface in device.interfaces:
+        if iface.status and iface.status.lower() == "down":
+            continue
+        if not _is_wan_interface(iface):
+            continue
+        protocols = _parse_allowaccess(iface.allowaccess)
+        mgmt_allowed = protocols & _MGMT_PROTOCOLS
+        if mgmt_allowed:
+            exposed.append({
+                "interface": iface.name,
+                "ip_address": iface.ip_address,
+                "management_protocols": sorted(mgmt_allowed),
+            })
+
+    if not exposed:
+        return []
+
+    return [Finding(
+        device_id=device.id,
+        check_id="MANAGEMENT_ACCESS_EXPOSED",
+        severity="HIGH",
+        title=f"Management access exposed on {len(exposed)} WAN-facing interface(s)",
+        description=(
+            f"Management protocols (HTTPS/SSH/HTTP) are allowed on WAN-facing interface(s): "
+            f"{', '.join(i['interface'] for i in exposed)}."
+        ),
+        remediation=(
+            "Restrict management access to dedicated management interfaces or specific trusted IPs only. "
+            "Use trusted hosts on admin accounts and Local-In policies to restrict access to the firewall itself."
+        ),
+        standard_references=json.dumps([
+            "CIS FortiGate Benchmark 1.3.1",
+            "NIST SP 800-41",
+            "DISA STIG FortiGate",
+        ]),
+        evidence=json.dumps({"wan_interfaces": exposed}),
+    )]
+
+
 # ------------------------------------------------------------------
 # Orchestrator
 # ------------------------------------------------------------------
@@ -615,6 +683,7 @@ ALL_CHECKS = [
     check_disabled_policy,
     check_broad_destination,
     check_http_admin_enabled,
+    check_management_access_exposed,
 ]
 
 
