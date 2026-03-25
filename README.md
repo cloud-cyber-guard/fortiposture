@@ -5,7 +5,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://www.python.org/)
 
-`fortiposture` is an open source CLI tool that ingests FortiGate firewall configuration backup files (`.conf` format), parses them, runs automated security posture checks against 11 rule categories, stores all results in a local SQLite database, and generates a self-contained HTML report. It works **entirely offline** — no live firewall connections required.
+`fortiposture` is an open source CLI tool that ingests FortiGate firewall configuration backup files (`.conf` format), parses them, runs automated security posture checks against 19 rule categories, stores all results in a local SQLite database, and generates a self-contained HTML report. It works **entirely offline** — no live firewall connections required.
 
 ---
 
@@ -34,7 +34,7 @@
 ## Features
 
 - **Parse FortiGate `.conf` files** — handles nested config blocks, multi-value sets, quoted values, VDOM-aware configs, and varying firmware versions
-- **11 security checks** across policy rules, admin accounts, logging, and password policy
+- **19 security checks** across policy rules, admin accounts, logging, password policy, management access, geographic filtering, firmware lifecycle, NTP, VPN cryptography, and SNMP
 - **CRITICAL / HIGH / MEDIUM / LOW** severity classification with per-check remediation steps and compliance references (NIST, PCI DSS, CIS)
 - **Posture scoring** (0–100) with letter grades (A–F)
 - **Self-contained HTML report** — single file, dark/light mode, sortable tables, expandable findings — no CDN or external dependencies
@@ -252,7 +252,7 @@ python fmg_export.py --host 10.1.1.1 --token <api_token> --output ./configs
 
 ## Security Checks
 
-`fortiposture` runs 11 checks across four categories. See [docs/checks.md](docs/checks.md) for full details on each check including evidence format, remediation steps, and compliance mappings.
+`fortiposture` runs 19 checks across seven categories. See [docs/checks.md](docs/checks.md) for full details on each check including evidence format, remediation steps, and compliance mappings.
 
 ### Policy checks
 
@@ -270,8 +270,8 @@ python fmg_export.py --host 10.1.1.1 --token <api_token> --output ./configs
 
 | Check ID | Severity | Condition |
 |----------|----------|-----------|
-| `ADMIN_NO_MFA` | 🔴 CRITICAL | Local password admin without two-factor authentication |
-| `ADMIN_UNRESTRICTED_ACCESS` | 🟠 HIGH | Admin account with no trusted hosts configured |
+| `ADMIN_NO_MFA` | 🔴 CRITICAL / 🟠 HIGH | Local admin without MFA — CRITICAL if any super_admin affected, HIGH otherwise. One finding per device. |
+| `ADMIN_UNRESTRICTED_ACCESS` | 🟠 HIGH | Admin accounts with no trusted hosts configured. One finding per device. |
 
 ### Logging checks
 
@@ -284,6 +284,29 @@ python fmg_export.py --host 10.1.1.1 --token <api_token> --output ./configs
 | Check ID | Severity | Condition |
 |----------|----------|-----------|
 | `WEAK_PASSWORD_POLICY` | 🟡 MEDIUM | Password policy not configured, or minimum length < 8 |
+
+### Management access checks
+
+| Check ID | Severity | Condition |
+|----------|----------|-----------|
+| `HTTP_ADMIN_ENABLED` | 🟠 HIGH | HTTP (cleartext) enabled for admin access on any interface |
+| `MANAGEMENT_ACCESS_EXPOSED` | 🟠 HIGH | HTTPS, SSH, or ping enabled on WAN-facing interfaces (wan1, wan2, port1, etc.) |
+
+### Geographic filtering checks
+
+| Check ID | Severity | Condition |
+|----------|----------|-----------|
+| `GEOBLOCK_ABSENT` | 🟡 MEDIUM | No geography address objects used in deny policies |
+| `GEOBLOCK_BYPASS_RISK` | 🟠 HIGH | Geo blocking active but SSL VPN enabled without matching Local-In policies — blocked countries can still reach the VPN portal |
+
+### Infrastructure checks
+
+| Check ID | Severity | Condition |
+|----------|----------|-----------|
+| `FIRMWARE_EOL` | 🟠 HIGH / 🟡 MEDIUM / 🟢 LOW | HIGH = FortiOS < 7.0; MEDIUM = 7.0.x or 7.1.x; LOW = version unrecognised; 7.2+ not flagged |
+| `NTP_NOT_CONFIGURED` | 🟡 MEDIUM | NTP block absent, ntpsync disabled, or no NTP servers configured |
+| `WEAK_CRYPTO_VPN` | 🟠 HIGH / 🟡 MEDIUM | IPSec VPN using weak algorithms — HIGH for DES/3DES/MD5/DH groups 1,2,5; MEDIUM for SHA-1 |
+| `SNMP_WEAK_VERSION` | 🟠 HIGH | SNMPv1/v2c communities configured (no auth or encryption; community strings never logged in evidence) |
 
 ---
 
@@ -386,7 +409,7 @@ See [docs/architecture.md](docs/architecture.md) for the full pipeline diagram a
 1. **Parser** (`fortiposture/parser/conf_parser.py`) — converts raw `.conf` text into a nested Python dict; handles VDOM-aware configs, multi-value sets, quoted strings, nested blocks
 2. **Normalizer** (`fortiposture/parser/normalizer.py`) — maps the parsed dict to SQLAlchemy ORM model instances; handles address/service/policy/admin/logging/interface ingestion; idempotent via file hash
 3. **Database** (`fortiposture/database.py`) — SQLite via SQLAlchemy ORM; all tables defined in `fortiposture/models/schema.py`
-4. **Checks** (`fortiposture/analysis/checks.py`) — 11 independent check functions, each returning a list of `Finding` objects; orchestrated by `run_all_checks()`
+4. **Checks** (`fortiposture/analysis/checks.py`) — 19 independent check functions, each returning a list of `Finding` objects; orchestrated by `run_all_checks()`
 5. **Scorer** (`fortiposture/analysis/scoring.py`) — pure function, deducts points by severity, returns (score, grade)
 6. **Report** (`fortiposture/output/html_report.py`) — generates the self-contained HTML; `fortiposture/output/csv_export.py` handles CSV
 
@@ -429,7 +452,7 @@ fortiposture/
 │   ├── models/
 │   │   └── schema.py               # SQLAlchemy ORM (all tables)
 │   ├── analysis/
-│   │   ├── checks.py               # 11 security checks
+│   │   ├── checks.py               # 19 security checks
 │   │   └── scoring.py              # score + grade calculation
 │   └── output/
 │       ├── html_report.py          # self-contained HTML report
@@ -438,11 +461,21 @@ fortiposture/
 │   ├── conftest.py                 # shared pytest fixtures
 │   ├── fixtures/                   # synthetic .conf test files
 │   │   ├── simple_policy.conf      # clean — 0 expected findings
-│   │   ├── any_any_rule.conf       # triggers ANY_ANY_RULE
-│   │   ├── shadowed_rules.conf     # triggers SHADOWED_RULE
-│   │   ├── missing_deny_all.conf   # triggers MISSING_DENY_ALL
-│   │   ├── weak_admin.conf         # triggers ADMIN_NO_MFA + ADMIN_UNRESTRICTED_ACCESS
-│   │   └── multi_vdom.conf         # VDOM-aware config
+│   │   ├── any_any_rule.conf       # ANY_ANY_RULE
+│   │   ├── shadowed_rules.conf     # SHADOWED_RULE
+│   │   ├── missing_deny_all.conf   # MISSING_DENY_ALL
+│   │   ├── weak_admin.conf         # ADMIN_NO_MFA + ADMIN_UNRESTRICTED_ACCESS
+│   │   ├── multi_vdom.conf         # VDOM-aware config
+│   │   ├── management_exposed.conf # HTTP_ADMIN_ENABLED + MANAGEMENT_ACCESS_EXPOSED
+│   │   ├── no_geoblock.conf        # GEOBLOCK_ABSENT (no geo objects)
+│   │   ├── geoblock_unused.conf    # GEOBLOCK_ABSENT (geo objects not in deny rules)
+│   │   ├── geoblock_bypass.conf    # GEOBLOCK_BYPASS_RISK
+│   │   ├── geoblock_with_localin.conf # GEOBLOCK_BYPASS_RISK — mitigated
+│   │   ├── eol_firmware.conf       # FIRMWARE_EOL (FortiOS v6.4.9)
+│   │   ├── no_ntp.conf             # NTP_NOT_CONFIGURED
+│   │   ├── weak_vpn.conf           # WEAK_CRYPTO_VPN (3des/md5/dhgrp2)
+│   │   ├── strong_vpn.conf         # WEAK_CRYPTO_VPN — clean
+│   │   └── weak_snmp.conf          # SNMP_WEAK_VERSION
 │   ├── test_parser.py
 │   ├── test_normalizer.py
 │   ├── test_schema.py
