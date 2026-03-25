@@ -321,3 +321,28 @@ def test_firmware_unparseable_low(db_session):
     eol = [f for f in findings if f.check_id == "FIRMWARE_EOL"]
     assert len(eol) == 1
     assert eol[0].severity == "LOW"
+
+
+def test_ntp_absent_flagged(db_session):
+    """No NTP config block → NTP_NOT_CONFIGURED."""
+    devices = ingest_fixture("no_ntp.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    assert any(f.check_id == "NTP_NOT_CONFIGURED" for f in findings)
+
+
+def test_ntp_configured_not_flagged(db_session):
+    """NTP properly configured → no NTP_NOT_CONFIGURED."""
+    import json as _json
+    devices = ingest_fixture("no_ntp.conf", db_session)
+    device = devices[0]
+    # Simulate NTP configured via vendor_data
+    vd = _json.loads(device.vendor_data or "{}")
+    vd["system ntp"] = {
+        "ntpsync": "enable",
+        "type": "custom",
+        "ntpserver": {"1": {"server": "0.pool.ntp.org"}},
+    }
+    device.vendor_data = _json.dumps(vd)
+    db_session.commit()
+    findings = run_all_checks(device, db_session)
+    assert not any(f.check_id == "NTP_NOT_CONFIGURED" for f in findings)

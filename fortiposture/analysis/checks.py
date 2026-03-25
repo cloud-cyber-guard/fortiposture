@@ -907,6 +907,60 @@ def check_firmware_eol(device: Device, session: Session) -> List[Finding]:
     )]
 
 
+def check_ntp_not_configured(device: Device, session: Session) -> List[Finding]:
+    """Flag when NTP synchronisation is not configured."""
+    try:
+        vd = json.loads(device.vendor_data or "{}")
+    except (ValueError, TypeError):
+        vd = {}
+
+    ntp = vd.get("system ntp", {})
+
+    # Flag conditions
+    if not ntp:
+        reason = "NTP configuration block is absent"
+    elif ntp.get("ntpsync", "disable") == "disable":
+        reason = "NTP sync is explicitly disabled (ntpsync=disable)"
+    elif not ntp.get("ntpserver"):
+        reason = "No NTP server addresses configured"
+    else:
+        return []  # NTP is configured
+
+    return [Finding(
+        device_id=device.id,
+        check_id="NTP_NOT_CONFIGURED",
+        severity="MEDIUM",
+        title="NTP synchronisation not configured",
+        description=(
+            f"Accurate time synchronisation is not configured: {reason}. "
+            "This impacts log forensics, certificate validation, and compliance."
+        ),
+        remediation=(
+            "Configure NTP with at least two reliable time sources:\n"
+            "  config system ntp\n"
+            "    set ntpsync enable\n"
+            "    set type custom\n"
+            "    config ntpserver\n"
+            "      edit 1\n"
+            "        set server \"0.pool.ntp.org\"\n"
+            "      next\n"
+            "    end\n"
+            "  end"
+        ),
+        standard_references=json.dumps([
+            "PCI DSS 10.4.3",
+            "CIS FortiGate Benchmark",
+            "NIST SP 800-41",
+        ]),
+        evidence=json.dumps({
+            "ntp_block_present": bool(ntp),
+            "ntpsync": ntp.get("ntpsync", "absent"),
+            "server_count": len(ntp.get("ntpserver", {})) if isinstance(ntp.get("ntpserver"), dict) else 0,
+            "reason": reason,
+        }),
+    )]
+
+
 # ------------------------------------------------------------------
 # Orchestrator
 # ------------------------------------------------------------------
@@ -928,6 +982,7 @@ ALL_CHECKS = [
     check_geoblock_absent,
     check_geoblock_bypass_risk,
     check_firmware_eol,
+    check_ntp_not_configured,
 ]
 
 
