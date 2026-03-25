@@ -42,6 +42,9 @@ def find_conf_files(
     Returns:
         ConfScanResult with sorted file list, folder count, and limit flag.
     """
+    if max_folders < 1:
+        raise ValueError(f"max_folders must be >= 1, got {max_folders}")
+
     result = ConfScanResult()
 
     def _walk(current: Path, depth: int) -> None:

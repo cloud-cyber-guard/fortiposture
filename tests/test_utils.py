@@ -89,3 +89,9 @@ def test_sibling_folders_all_scanned(tmp_path):
     result = find_conf_files(tmp_path)
     assert len(result.files) == 10
     assert result.limit_reached is False
+
+
+def test_max_folders_zero_raises(tmp_path):
+    (tmp_path / "a.conf").write_text("config")
+    with pytest.raises(ValueError, match="max_folders must be >= 1"):
+        find_conf_files(tmp_path, max_folders=0)
