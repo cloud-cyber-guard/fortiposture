@@ -346,3 +346,41 @@ def test_ntp_configured_not_flagged(db_session):
     db_session.commit()
     findings = run_all_checks(device, db_session)
     assert not any(f.check_id == "NTP_NOT_CONFIGURED" for f in findings)
+
+
+def test_weak_vpn_3des_high(db_session):
+    """Phase1 with 3des/md5/dhgrp2 → WEAK_CRYPTO_VPN HIGH."""
+    devices = ingest_fixture("weak_vpn.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    vpn_findings = [f for f in findings if f.check_id == "WEAK_CRYPTO_VPN"]
+    assert len(vpn_findings) == 1
+    assert vpn_findings[0].severity == "HIGH"
+
+
+def test_weak_vpn_sha1_medium(db_session):
+    """Phase1 with only sha1 (no HIGH-tier weaknesses) → WEAK_CRYPTO_VPN MEDIUM."""
+    import json as _json
+    devices = ingest_fixture("weak_vpn.conf", db_session)
+    device = devices[0]
+    vd = _json.loads(device.vendor_data or "{}")
+    # Override to sha1 only (no des/3des/md5/weak-dhgrp)
+    vd["vpn ipsec phase1-interface"] = {
+        "vpn-sha1-only": {
+            "proposal": "aes256-sha1",
+            "dhgrp": "14",
+        }
+    }
+    vd["vpn ipsec phase2-interface"] = {}
+    device.vendor_data = _json.dumps(vd)
+    db_session.commit()
+    findings = run_all_checks(device, db_session)
+    vpn_findings = [f for f in findings if f.check_id == "WEAK_CRYPTO_VPN"]
+    assert len(vpn_findings) == 1
+    assert vpn_findings[0].severity == "MEDIUM"
+
+
+def test_strong_vpn_not_flagged(db_session):
+    """Phase1 with aes256/sha256/dhgrp14 → no WEAK_CRYPTO_VPN."""
+    devices = ingest_fixture("strong_vpn.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    assert not any(f.check_id == "WEAK_CRYPTO_VPN" for f in findings)

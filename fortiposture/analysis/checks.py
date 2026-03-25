@@ -961,6 +961,102 @@ def check_ntp_not_configured(device: Device, session: Session) -> List[Finding]:
     )]
 
 
+_WEAK_ENCRYPTION_HIGH = {"des", "3des", "null"}
+_WEAK_HASH_HIGH = {"md5"}
+_WEAK_HASH_MEDIUM = {"sha1"}
+_WEAK_DHGRP_HIGH = {"1", "2", "5"}
+
+
+def _check_vpn_phase(phase_data: dict, phase_num: int) -> list:
+    """Check one phase dict for weak algorithms. Returns list of issue dicts."""
+    issues = []
+    for tunnel_name, tdata in phase_data.items():
+        if not isinstance(tdata, dict):
+            continue
+        proposal = tdata.get("proposal", "")
+        if isinstance(proposal, list):
+            proposal_str = " ".join(proposal).lower()
+        else:
+            proposal_str = str(proposal).lower()
+
+        dhgrp = str(tdata.get("dhgrp", "")).strip()
+        severity = None
+        weak_items = []
+
+        # HIGH checks
+        for alg in _WEAK_ENCRYPTION_HIGH:
+            if alg in proposal_str.split("-") or alg in proposal_str.split():
+                weak_items.append(f"encryption:{alg}")
+                severity = "HIGH"
+
+        for alg in _WEAK_HASH_HIGH:
+            if alg in proposal_str.split("-") or alg in proposal_str.split():
+                weak_items.append(f"hash:{alg}")
+                severity = "HIGH"
+
+        if dhgrp in _WEAK_DHGRP_HIGH:
+            weak_items.append(f"dhgrp:{dhgrp}")
+            severity = "HIGH"
+
+        # MEDIUM checks (only if not already HIGH)
+        if severity is None:
+            for alg in _WEAK_HASH_MEDIUM:
+                if alg in proposal_str.split("-") or alg in proposal_str.split():
+                    weak_items.append(f"hash:{alg}")
+                    severity = "MEDIUM"
+
+        if severity:
+            issues.append({
+                "tunnel": tunnel_name,
+                "phase": phase_num,
+                "severity": severity,
+                "weak_algorithms": weak_items,
+                "proposal": proposal,
+                "dhgrp": dhgrp,
+            })
+    return issues
+
+
+def check_weak_crypto_vpn(device: Device, session: Session) -> List[Finding]:
+    """Flag IPSec VPN tunnels using deprecated or weak cryptographic algorithms."""
+    try:
+        vd = json.loads(device.vendor_data or "{}")
+    except (ValueError, TypeError):
+        vd = {}
+
+    phase1 = vd.get("vpn ipsec phase1-interface", {})
+    phase2 = vd.get("vpn ipsec phase2-interface", {})
+
+    all_issues = _check_vpn_phase(phase1, 1) + _check_vpn_phase(phase2, 2)
+
+    if not all_issues:
+        return []
+
+    worst = "HIGH" if any(i["severity"] == "HIGH" for i in all_issues) else "MEDIUM"
+
+    return [Finding(
+        device_id=device.id,
+        check_id="WEAK_CRYPTO_VPN",
+        severity=worst,
+        title=f"Weak cryptography in {len(all_issues)} VPN tunnel(s)",
+        description=(
+            f"{len(all_issues)} IPSec VPN tunnel phase(s) use deprecated cryptographic algorithms. "
+            "Weak algorithms are vulnerable to cryptanalytic attacks."
+        ),
+        remediation=(
+            "Upgrade to AES-256 encryption, SHA-256 or SHA-384 integrity, DH group 14 or higher. "
+            "Coordinate with VPN peers before changing algorithm proposals."
+        ),
+        standard_references=json.dumps([
+            "NIST SP 800-77 Rev 1",
+            "PCI DSS 4.2.1",
+            "DISA STIG",
+            "CIS Benchmark",
+        ]),
+        evidence=json.dumps({"weak_tunnels": all_issues}),
+    )]
+
+
 # ------------------------------------------------------------------
 # Orchestrator
 # ------------------------------------------------------------------
@@ -983,6 +1079,7 @@ ALL_CHECKS = [
     check_geoblock_bypass_risk,
     check_firmware_eol,
     check_ntp_not_configured,
+    check_weak_crypto_vpn,
 ]
 
 
