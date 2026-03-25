@@ -301,6 +301,17 @@ def test_firmware_current_not_flagged(db_session):
     assert not any(f.check_id == "FIRMWARE_EOL" for f in findings)
 
 
+def test_firmware_eol_v71_medium(db_session):
+    """FortiOS 7.1.x → FIRMWARE_EOL with MEDIUM severity (not current, not EOL)."""
+    devices = ingest_fixture("eol_firmware.conf", db_session)
+    devices[0].firmware_version = "FortiOS v7.1.5"
+    db_session.commit()
+    findings = run_all_checks(devices[0], db_session)
+    eol = [f for f in findings if f.check_id == "FIRMWARE_EOL"]
+    assert len(eol) == 1
+    assert eol[0].severity == "MEDIUM"
+
+
 def test_firmware_unparseable_low(db_session):
     """Unparseable version string → FIRMWARE_EOL with LOW severity."""
     devices = ingest_fixture("eol_firmware.conf", db_session)

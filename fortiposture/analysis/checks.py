@@ -867,12 +867,12 @@ def check_firmware_eol(device: Device, session: Session) -> List[Finding]:
         if m:
             major, minor = int(m.group(1)), int(m.group(2))
             parsed_version = f"{major}.{minor}"
-            if major >= 7 and not (major == 7 and minor == 0):
-                return []  # 7.2+ is current
-            elif major == 7 and minor == 0:
-                severity = "MEDIUM"
+            if major > 7 or (major == 7 and minor >= 2):
+                return []  # >= 7.2 is current
+            elif major == 7:
+                severity = "MEDIUM"  # 7.0.x or 7.1.x — limited/no support
             else:
-                severity = "HIGH"
+                severity = "HIGH"  # < 7.0 — end-of-life
         else:
             severity = "LOW"
     else:
