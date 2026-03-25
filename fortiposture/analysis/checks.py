@@ -804,7 +804,7 @@ def check_geoblock_bypass_risk(device: Device, session: Session) -> List[Finding
         else:
             srcs = [src]
         for s in srcs:
-            if str(s).strip('"') in geo_names:
+            if str(s) in geo_names:
                 has_localin_geo = True
                 break
         if has_localin_geo:
@@ -842,7 +842,7 @@ def check_geoblock_bypass_risk(device: Device, session: Session) -> List[Finding
             "DISA STIG FortiGate",
         ]),
         evidence=json.dumps({
-            "geo_objects_in_deny_rules": sorted(geo_names),
+            "geo_objects_defined": sorted(geo_names),
             "ssl_vpn_enabled": ssl_enabled,
             "local_in_geo_policies": has_localin_geo,
         }),

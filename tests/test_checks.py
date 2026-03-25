@@ -220,10 +220,15 @@ def test_geoblock_absent_objects_not_in_deny(db_session):
 
 
 def test_geoblock_bypass_all_conditions_met(db_session):
-    """Geo deny + SSL VPN + no local-in → GEOBLOCK_BYPASS_RISK."""
+    """Geo deny + SSL VPN + no local-in → GEOBLOCK_BYPASS_RISK with correct evidence."""
     devices = ingest_fixture("geoblock_bypass.conf", db_session)
     findings = run_all_checks(devices[0], db_session)
-    assert any(f.check_id == "GEOBLOCK_BYPASS_RISK" for f in findings)
+    bypass_findings = [f for f in findings if f.check_id == "GEOBLOCK_BYPASS_RISK"]
+    assert len(bypass_findings) == 1
+    ev = json.loads(bypass_findings[0].evidence)
+    assert ev["ssl_vpn_enabled"] is True
+    assert ev["local_in_geo_policies"] is False
+    assert len(ev["geo_objects_defined"]) > 0
 
 
 def test_geoblock_bypass_with_localin_not_flagged(db_session):
