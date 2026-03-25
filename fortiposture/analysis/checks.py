@@ -666,6 +666,86 @@ def check_management_access_exposed(device: Device, session: Session) -> List[Fi
     )]
 
 
+def check_geoblock_absent(device: Device, session: Session) -> List[Finding]:
+    """Flag when no GeoIP blocking is configured or geo objects not used in deny rules."""
+    from fortiposture.models.schema import AddressObject as _AO
+
+    # Find all geography address objects for this device
+    all_addrs = session.query(_AO).filter_by(device_id=device.id).all()
+    geo_names = set()
+    for addr in all_addrs:
+        try:
+            raw = json.loads(addr.vendor_data or "{}")
+        except (ValueError, TypeError):
+            raw = {}
+        if raw.get("type") == "geography":
+            geo_names.add(addr.name)
+
+    if not geo_names:
+        return [Finding(
+            device_id=device.id,
+            check_id="GEOBLOCK_ABSENT",
+            severity="MEDIUM",
+            title="No GeoIP blocking configured",
+            description=(
+                "No geography-based address objects were found. "
+                "Geographic blocking reduces attack surface from high-risk regions."
+            ),
+            remediation=(
+                "Implement geographic blocking for countries with no business relationship. "
+                "In FortiGate: Policy & Objects > Addresses > Create New > Type: Geography. "
+                "Add to a DENY rule before the default deny-all."
+            ),
+            standard_references=json.dumps([
+                "CIS FortiGate Benchmark",
+                "NIST SP 800-41",
+            ]),
+            evidence=json.dumps({
+                "geo_objects_defined": 0,
+                "used_in_deny_rules": False,
+            }),
+        )]
+
+    # Case B: geo objects exist — check if any appear in DENY policies
+    used_in_deny = False
+    for policy in device.policies:
+        if policy.action not in ("deny", "drop"):
+            continue
+        for addr in policy.src_addresses:
+            if addr.name in geo_names:
+                used_in_deny = True
+                break
+        if used_in_deny:
+            break
+
+    if used_in_deny:
+        return []
+
+    return [Finding(
+        device_id=device.id,
+        check_id="GEOBLOCK_ABSENT",
+        severity="MEDIUM",
+        title="GeoIP objects defined but not used in deny rules",
+        description=(
+            f"Geography address objects exist ({', '.join(sorted(geo_names))}) "
+            "but none are referenced in any DENY policy rule."
+        ),
+        remediation=(
+            "Create a DENY policy rule that uses the geography address objects as source. "
+            "Place it before any ACCEPT rules to ensure it takes effect."
+        ),
+        standard_references=json.dumps([
+            "CIS FortiGate Benchmark",
+            "NIST SP 800-41",
+        ]),
+        evidence=json.dumps({
+            "geo_objects_defined": len(geo_names),
+            "geo_object_names": sorted(geo_names),
+            "used_in_deny_rules": False,
+        }),
+    )]
+
+
 # ------------------------------------------------------------------
 # Orchestrator
 # ------------------------------------------------------------------
@@ -684,6 +764,7 @@ ALL_CHECKS = [
     check_broad_destination,
     check_http_admin_enabled,
     check_management_access_exposed,
+    check_geoblock_absent,
 ]
 
 

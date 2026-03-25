@@ -199,3 +199,28 @@ def test_management_public_ip_flagged(db_session):
     iface_names = [i["interface"] for i in ev["wan_interfaces"]]
     # wan2-http has public IP (198.51.100.5) and WAN name → should be included
     assert "wan2-http" in iface_names
+
+
+def test_geoblock_absent_no_objects(db_session):
+    """No geography address objects at all → GEOBLOCK_ABSENT."""
+    devices = ingest_fixture("no_geoblock.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    assert any(f.check_id == "GEOBLOCK_ABSENT" for f in findings)
+
+
+def test_geoblock_absent_objects_not_in_deny(db_session):
+    """Geo objects defined but only in accept rules → GEOBLOCK_ABSENT (Case B)."""
+    devices = ingest_fixture("geoblock_unused.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    gb_findings = [f for f in findings if f.check_id == "GEOBLOCK_ABSENT"]
+    assert len(gb_findings) == 1
+    ev = json.loads(gb_findings[0].evidence)
+    assert ev["geo_objects_defined"] > 0
+    assert ev["used_in_deny_rules"] is False
+
+
+def test_geoblock_present_in_deny_not_flagged(db_session):
+    """Geo objects used in deny rules → no GEOBLOCK_ABSENT."""
+    # geoblock_bypass.conf (created in Task 6) has geo objects in deny rules.
+    # For now, skip this test — it will be enabled in Task 6.
+    pytest.skip("Requires geoblock_bypass.conf from Task 6")
