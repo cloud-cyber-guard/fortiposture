@@ -33,6 +33,7 @@ from fortiposture.analysis.checks import run_all_checks
 from fortiposture.models.schema import Device, PostureScore
 from fortiposture.output.html_report import generate_html_report
 from fortiposture.output.csv_export import export_findings_csv
+from fortiposture.utils import find_conf_files
 
 app = typer.Typer(
     name="fortiposture",
@@ -96,6 +97,14 @@ def scan(
         False, "--quiet", "-q",
         help="Suppress progress output; only print errors.",
     ),
+    depth: int = typer.Option(
+        5, "--depth",
+        help="Max subdirectory nesting depth (0 = root only).",
+    ),
+    max_folders: int = typer.Option(
+        100, "--max-folders",
+        help="Max total folders to visit (safety cap).",
+    ),
 ):
     """Scan FortiGate .conf files and generate a security posture report."""
     console = Console(no_color=no_color, stderr=False)
@@ -117,13 +126,23 @@ def scan(
     session = get_session(engine)
 
     # --- Discover .conf files ---
-    conf_files = sorted(input_dir.glob("*.conf"))
+    scan_result = find_conf_files(input_dir, max_depth=depth, max_folders=max_folders)
+    conf_files = scan_result.files
+    if scan_result.limit_reached:
+        err_console.print(
+            f"[yellow]Warning: max-folders limit ({max_folders}) reached — "
+            f"some directories may not have been scanned. "
+            f"Use --max-folders N to increase the limit.[/yellow]"
+        )
     if not conf_files:
         err_console.print(f"[red]No .conf files found in {input_dir}[/red]")
         raise typer.Exit(1)
 
     if not quiet:
-        console.print(f"\n[bold]fortiposture[/bold] — scanning {len(conf_files)} file(s) in [cyan]{input_dir}[/cyan]\n")
+        console.print(
+            f"\n[bold]fortiposture[/bold] — scanning {len(conf_files)} file(s) "
+            f"across {scan_result.folders_visited} folder(s) in [cyan]{input_dir}[/cyan]\n"
+        )
 
     parser = FortiParser()
     normalizer = FortiNormalizer()
