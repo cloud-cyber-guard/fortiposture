@@ -219,11 +219,34 @@ def test_geoblock_absent_objects_not_in_deny(db_session):
     assert ev["used_in_deny_rules"] is False
 
 
+def test_geoblock_bypass_all_conditions_met(db_session):
+    """Geo deny + SSL VPN + no local-in → GEOBLOCK_BYPASS_RISK."""
+    devices = ingest_fixture("geoblock_bypass.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    assert any(f.check_id == "GEOBLOCK_BYPASS_RISK" for f in findings)
+
+
+def test_geoblock_bypass_with_localin_not_flagged(db_session):
+    """Local-in geo policy present → no GEOBLOCK_BYPASS_RISK."""
+    devices = ingest_fixture("geoblock_with_localin.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    assert not any(f.check_id == "GEOBLOCK_BYPASS_RISK" for f in findings)
+
+
+def test_geoblock_bypass_no_sslvpn_not_flagged(db_session):
+    """No SSL VPN → condition 2 false → no GEOBLOCK_BYPASS_RISK."""
+    # geoblock_unused.conf has geo objects but no SSL VPN configured.
+    devices = ingest_fixture("geoblock_unused.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    assert not any(f.check_id == "GEOBLOCK_BYPASS_RISK" for f in findings)
+
+
 def test_geoblock_present_in_deny_not_flagged(db_session):
-    """Geo objects used in deny rules → no GEOBLOCK_ABSENT."""
-    # geoblock_bypass.conf (created in Task 6) has geo objects in deny rules.
-    # For now, skip this test — it will be enabled in Task 6.
-    pytest.skip("Requires geoblock_bypass.conf from Task 6")
+    """Geo objects used in deny rules → no GEOBLOCK_ABSENT (replaces the skipped placeholder)."""
+    devices = ingest_fixture("geoblock_bypass.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    # geoblock_bypass.conf HAS geo objects in deny rules → no GEOBLOCK_ABSENT
+    assert not any(f.check_id == "GEOBLOCK_ABSENT" for f in findings)
 
 
 def test_vendor_data_has_password_policy_key(db_session):

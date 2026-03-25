@@ -751,6 +751,104 @@ def check_geoblock_absent(device: Device, session: Session) -> List[Finding]:
     )]
 
 
+def check_geoblock_bypass_risk(device: Device, session: Session) -> List[Finding]:
+    """Flag when geo blocking is active but SSL VPN portal lacks Local-In geo policies."""
+    from fortiposture.models.schema import AddressObject as _AO
+
+    # Condition 1: geo objects used in deny rules?
+    all_addrs = session.query(_AO).filter_by(device_id=device.id).all()
+    geo_names = set()
+    for addr in all_addrs:
+        try:
+            raw = json.loads(addr.vendor_data or "{}")
+        except (ValueError, TypeError):
+            raw = {}
+        if raw.get("type") == "geography":
+            geo_names.add(addr.name)
+
+    geo_in_deny = False
+    for policy in device.policies:
+        if policy.action not in ("deny", "drop"):
+            continue
+        for addr in policy.src_addresses:
+            if addr.name in geo_names:
+                geo_in_deny = True
+                break
+        if geo_in_deny:
+            break
+
+    if not geo_in_deny:
+        return []  # No geo blocking → nothing to bypass
+
+    # Condition 2: SSL VPN enabled?
+    try:
+        vd = json.loads(device.vendor_data or "{}")
+    except (ValueError, TypeError):
+        vd = {}
+    ssl_settings = vd.get("vpn ssl settings", {})
+    ssl_enabled = ssl_settings.get("status", "disable") == "enable"
+
+    if not ssl_enabled:
+        return []  # No SSL VPN → no bypass risk
+
+    # Condition 3: Local-In policies referencing geo objects?
+    local_in = vd.get("firewall local-in-policy", {})
+    has_localin_geo = False
+    for _, lip_data in local_in.items():
+        if not isinstance(lip_data, dict):
+            continue
+        src = lip_data.get("srcaddr", "")
+        # srcaddr may be a string or list
+        if isinstance(src, list):
+            srcs = src
+        else:
+            srcs = [src]
+        for s in srcs:
+            if str(s).strip('"') in geo_names:
+                has_localin_geo = True
+                break
+        if has_localin_geo:
+            break
+
+    if has_localin_geo:
+        return []  # Local-In geo policies present → risk mitigated
+
+    return [Finding(
+        device_id=device.id,
+        check_id="GEOBLOCK_BYPASS_RISK",
+        severity="HIGH",
+        title="GeoIP blocks do not protect SSL VPN (missing Local-In policy)",
+        description=(
+            "GeoIP blocking via IPv4 policies only filters traffic passing THROUGH the firewall. "
+            "SSL VPN portal and management interfaces are governed by Local-In policies. "
+            "Blocked countries can still reach the SSL VPN portal."
+        ),
+        remediation=(
+            "Create Local-In policies to apply geographic restrictions to the FortiGate management "
+            "and SSL VPN interfaces. Example:\n"
+            "  config firewall local-in-policy\n"
+            "    edit 1\n"
+            "      set intf \"wan1\"\n"
+            "      set srcaddr \"<geo-group>\"\n"
+            "      set dstaddr \"all\"\n"
+            "      set action deny\n"
+            "      set schedule \"always\"\n"
+            "    next\n"
+            "  end"
+        ),
+        standard_references=json.dumps([
+            "Fortinet KB: Local-In Policies and Geoblocking",
+            "CIS FortiGate Benchmark",
+            "DISA STIG FortiGate",
+        ]),
+        evidence=json.dumps({
+            "geo_objects_in_deny_rules": sorted(geo_names),
+            "ssl_vpn_enabled": ssl_enabled,
+            "local_in_geo_policies": has_localin_geo,
+        }),
+    )]
+
+
 # ------------------------------------------------------------------
 # Orchestrator
 # ------------------------------------------------------------------
@@ -770,6 +868,7 @@ ALL_CHECKS = [
     check_http_admin_enabled,
     check_management_access_exposed,
     check_geoblock_absent,
+    check_geoblock_bypass_risk,
 ]
 
 
