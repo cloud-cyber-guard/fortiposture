@@ -326,67 +326,87 @@ def check_missing_deny_all(device: Device, session: Session) -> List[Finding]:
 
 
 def check_admin_no_mfa(device: Device, session: Session) -> List[Finding]:
-    findings = []
+    affected = []
+    has_super_admin = False
+    total = 0
     for admin in device.admins:
-        if admin.auth_type == "local" and not admin.two_factor_auth:
-            findings.append(Finding(
-                device_id=device.id,
-                check_id="ADMIN_NO_MFA",
-                severity="CRITICAL",
-                title=f"Admin account without MFA: '{admin.username}'",
-                description=(
-                    f"Admin '{admin.username}' uses local password authentication "
-                    "without multi-factor authentication. This is a single point of failure."
-                ),
-                remediation=(
-                    "1. Enable two-factor authentication (FortiToken, email, or SMS).\n"
-                    "2. Prefer FortiToken hardware or mobile tokens.\n"
-                    "3. Consider integrating with RADIUS/LDAP with MFA enforcement."
-                ),
-                standard_references=json.dumps([
-                    "NIST SP 800-63B",
-                    "CIS FortiGate Benchmark 1.3",
-                    "PCI DSS 8.3",
-                ]),
-                affected_object_name=admin.username,
-                evidence=json.dumps({
-                    "username": admin.username,
-                    "auth_type": admin.auth_type,
-                    "two_factor_auth": admin.two_factor_auth,
-                }),
-            ))
-    return findings
+        if admin.auth_type != "local":
+            continue
+        total += 1
+        if not admin.two_factor_auth:
+            is_super = (admin.access_profile or "").lower() in ("super_admin", "super-admin")
+            affected.append({
+                "username": admin.username,
+                "access_profile": admin.access_profile,
+                "is_super_admin": is_super,
+            })
+            if is_super:
+                has_super_admin = True
+
+    if not affected:
+        return []
+
+    severity = "CRITICAL" if has_super_admin else "HIGH"
+    return [Finding(
+        device_id=device.id,
+        check_id="ADMIN_NO_MFA",
+        severity=severity,
+        title=f"{len(affected)} of {total} admin account(s) lack MFA",
+        description=(
+            f"{len(affected)} local admin account(s) have no multi-factor authentication. "
+            + ("One or more are super_admin — immediate risk." if has_super_admin else "")
+        ),
+        remediation=(
+            "Enable two-factor authentication (FortiToken, email, or SMS) for all admin accounts. "
+            "Prefer FortiToken hardware or mobile tokens. "
+            "Consider integrating with RADIUS/LDAP with MFA enforcement."
+        ),
+        standard_references=json.dumps([
+            "NIST SP 800-63B",
+            "CIS FortiGate Benchmark 1.3",
+            "PCI DSS 8.3",
+        ]),
+        evidence=json.dumps({
+            "affected_accounts": affected,
+            "total_local_accounts": total,
+        }),
+    )]
 
 
 def check_admin_unrestricted_access(device: Device, session: Session) -> List[Finding]:
-    findings = []
+    affected = []
+    total = len(device.admins)
     for admin in device.admins:
         trusted = json.loads(admin.trusted_hosts or "[]")
         if not trusted:
-            findings.append(Finding(
-                device_id=device.id,
-                check_id="ADMIN_UNRESTRICTED_ACCESS",
-                severity="HIGH",
-                title=f"Admin account with unrestricted source IP: '{admin.username}'",
-                description=(
-                    f"Admin '{admin.username}' has no trusted hosts configured. "
-                    "This allows login from any IP address."
-                ),
-                remediation=(
-                    "1. Configure trusted hosts to restrict admin access to specific IP ranges.\n"
-                    "2. Use management VLAN IP ranges only.\n"
-                    "3. Set trusthost1 through trusthost10 to cover management workstation IPs."
-                ),
-                standard_references=json.dumps([
-                    "CIS FortiGate Benchmark",
-                ]),
-                affected_object_name=admin.username,
-                evidence=json.dumps({
-                    "username": admin.username,
-                    "trusted_hosts": trusted,
-                }),
-            ))
-    return findings
+            affected.append({
+                "username": admin.username,
+                "access_profile": admin.access_profile,
+            })
+
+    if not affected:
+        return []
+
+    return [Finding(
+        device_id=device.id,
+        check_id="ADMIN_UNRESTRICTED_ACCESS",
+        severity="HIGH",
+        title=f"{len(affected)} of {total} admin account(s) have no trusted hosts",
+        description=(
+            f"{len(affected)} admin account(s) have no trusted hosts configured, "
+            "allowing login from any IP address."
+        ),
+        remediation=(
+            "Configure trusted hosts on all admin accounts to restrict access to specific IP ranges. "
+            "Use management VLAN IP ranges only. "
+            "Set trusthost1 through trusthost10 to cover management workstation IPs."
+        ),
+        standard_references=json.dumps(["CIS FortiGate Benchmark"]),
+        evidence=json.dumps({
+            "affected_accounts": affected,
+            "total_accounts": total,
+        }),
+    )]
 
 
 def check_logging_not_configured(device: Device, session: Session) -> List[Finding]:

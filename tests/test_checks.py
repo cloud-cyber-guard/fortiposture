@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+import json
+
 import pytest
 from tests.conftest import ingest_fixture
 from fortiposture.analysis.checks import run_all_checks
@@ -72,16 +74,55 @@ def test_missing_deny_all_detected(db_session):
     assert any(f.check_id == "MISSING_DENY_ALL" for f in findings)
 
 
-def test_admin_no_mfa_detected(db_session):
+def test_admin_no_mfa_single_finding_per_device(db_session):
+    """Aggregation: weak_admin has 2 accounts without MFA → must produce exactly 1 Finding."""
     devices = ingest_fixture("weak_admin.conf", db_session)
     findings = run_all_checks(devices[0], db_session)
-    assert any(f.check_id == "ADMIN_NO_MFA" for f in findings)
+    mfa_findings = [f for f in findings if f.check_id == "ADMIN_NO_MFA"]
+    assert len(mfa_findings) == 1
 
 
-def test_admin_unrestricted_detected(db_session):
+def test_admin_no_mfa_super_admin_is_critical(db_session):
+    """super_admin without MFA → CRITICAL severity."""
     devices = ingest_fixture("weak_admin.conf", db_session)
     findings = run_all_checks(devices[0], db_session)
-    assert any(f.check_id == "ADMIN_UNRESTRICTED_ACCESS" for f in findings)
+    mfa_findings = [f for f in findings if f.check_id == "ADMIN_NO_MFA"]
+    assert len(mfa_findings) == 1
+    assert mfa_findings[0].severity == "CRITICAL"
+
+
+def test_admin_no_mfa_with_mfa_not_counted(db_session):
+    """Admin WITH MFA (simple_policy.conf) must NOT trigger ADMIN_NO_MFA."""
+    devices = ingest_fixture("simple_policy.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    assert not any(f.check_id == "ADMIN_NO_MFA" for f in findings)
+
+
+def test_admin_no_mfa_evidence_lists_accounts(db_session):
+    """Evidence JSON must list affected usernames."""
+    devices = ingest_fixture("weak_admin.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    mfa_finding = next(f for f in findings if f.check_id == "ADMIN_NO_MFA")
+    ev = json.loads(mfa_finding.evidence)
+    usernames = [a["username"] for a in ev["affected_accounts"]]
+    assert "admin" in usernames
+
+
+def test_admin_unrestricted_single_finding_per_device(db_session):
+    """Aggregation: weak_admin has 2 accounts without trusted hosts → exactly 1 Finding."""
+    devices = ingest_fixture("weak_admin.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    unr_findings = [f for f in findings if f.check_id == "ADMIN_UNRESTRICTED_ACCESS"]
+    assert len(unr_findings) == 1
+
+
+def test_admin_unrestricted_evidence_lists_accounts(db_session):
+    """Evidence must list affected usernames."""
+    devices = ingest_fixture("weak_admin.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    unr = next(f for f in findings if f.check_id == "ADMIN_UNRESTRICTED_ACCESS")
+    ev = json.loads(unr.evidence)
+    assert len(ev["affected_accounts"]) == 2
 
 
 def test_clean_config_no_critical_findings(db_session):
