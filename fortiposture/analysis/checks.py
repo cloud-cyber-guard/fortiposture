@@ -19,6 +19,7 @@
 import ipaddress
 import json
 import logging
+import re
 from datetime import datetime
 from typing import List, Optional
 
@@ -849,6 +850,63 @@ def check_geoblock_bypass_risk(device: Device, session: Session) -> List[Finding
     )]
 
 
+def check_firmware_eol(device: Device, session: Session) -> List[Finding]:
+    """Flag FortiGate devices running end-of-life firmware.
+
+    # NOTE: Update version thresholds periodically.
+    # Reference: https://support.fortinet.com/Information/ProductLifeCycle.aspx
+    # Last reviewed: 2026-03
+    """
+    raw_version = device.firmware_version
+
+    # Parse major.minor from strings like "FortiOS v6.4.9", "v7.0.14"
+    severity = None
+    parsed_version = None
+    if raw_version:
+        m = re.search(r"v?(\d+)\.(\d+)", str(raw_version))
+        if m:
+            major, minor = int(m.group(1)), int(m.group(2))
+            parsed_version = f"{major}.{minor}"
+            if major >= 7 and not (major == 7 and minor == 0):
+                return []  # 7.2+ is current
+            elif major == 7 and minor == 0:
+                severity = "MEDIUM"
+            else:
+                severity = "HIGH"
+        else:
+            severity = "LOW"
+    else:
+        return []  # No firmware version stored — can't assess
+
+    return [Finding(
+        device_id=device.id,
+        check_id="FIRMWARE_EOL",
+        severity=severity,
+        title=f"End-of-life firmware: {raw_version or 'unknown'}",
+        description=(
+            f"Device is running firmware version '{raw_version}' which is "
+            + ("end-of-life." if severity == "HIGH" else
+               "approaching end-of-life (FortiOS 7.0.x has limited support)." if severity == "MEDIUM" else
+               "unrecognised — manual review required.")
+        ),
+        remediation=(
+            "Upgrade to a supported FortiOS version. Review the Fortinet Product Lifecycle page "
+            "before planning the upgrade. Test in a lab environment first. "
+            "Use FortiManager for coordinated fleet upgrades."
+        ),
+        standard_references=json.dumps([
+            "Fortinet Product Lifecycle",
+            "NIST SP 800-40 Rev 3",
+            "CIS Benchmark",
+        ]),
+        evidence=json.dumps({
+            "raw_firmware_version": raw_version,
+            "parsed_version": parsed_version,
+            "eol_status": severity,
+        }),
+    )]
+
+
 # ------------------------------------------------------------------
 # Orchestrator
 # ------------------------------------------------------------------
@@ -869,6 +927,7 @@ ALL_CHECKS = [
     check_management_access_exposed,
     check_geoblock_absent,
     check_geoblock_bypass_risk,
+    check_firmware_eol,
 ]
 
 

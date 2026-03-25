@@ -269,3 +269,44 @@ def test_vendor_data_has_ntp_key(db_session):
     device = devices[0]
     vd = json.loads(device.vendor_data or "{}")
     assert "system ntp" in vd
+
+
+def test_firmware_eol_v6_high(db_session):
+    """FortiOS v6.4.9 → FIRMWARE_EOL with HIGH severity."""
+    devices = ingest_fixture("eol_firmware.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    eol = [f for f in findings if f.check_id == "FIRMWARE_EOL"]
+    assert len(eol) == 1
+    assert eol[0].severity == "HIGH"
+
+
+def test_firmware_eol_v70_medium(db_session):
+    """FortiOS 7.0.x → FIRMWARE_EOL with MEDIUM severity."""
+    devices = ingest_fixture("eol_firmware.conf", db_session)
+    # Override firmware version to 7.0.x
+    devices[0].firmware_version = "FortiOS v7.0.14"
+    db_session.commit()
+    findings = run_all_checks(devices[0], db_session)
+    eol = [f for f in findings if f.check_id == "FIRMWARE_EOL"]
+    assert len(eol) == 1
+    assert eol[0].severity == "MEDIUM"
+
+
+def test_firmware_current_not_flagged(db_session):
+    """FortiOS 7.2+ → no FIRMWARE_EOL."""
+    devices = ingest_fixture("simple_policy.conf", db_session)
+    devices[0].firmware_version = "FortiOS v7.2.8"
+    db_session.commit()
+    findings = run_all_checks(devices[0], db_session)
+    assert not any(f.check_id == "FIRMWARE_EOL" for f in findings)
+
+
+def test_firmware_unparseable_low(db_session):
+    """Unparseable version string → FIRMWARE_EOL with LOW severity."""
+    devices = ingest_fixture("eol_firmware.conf", db_session)
+    devices[0].firmware_version = "UNKNOWN BUILD"
+    db_session.commit()
+    findings = run_all_checks(devices[0], db_session)
+    eol = [f for f in findings if f.check_id == "FIRMWARE_EOL"]
+    assert len(eol) == 1
+    assert eol[0].severity == "LOW"
