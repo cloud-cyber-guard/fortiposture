@@ -130,7 +130,16 @@ class FortiNormalizer:
             source_file=str(source_file),
             source_file_hash=file_hash,
             vdom=vdom,
-            vendor_data=json.dumps(parsed.get("system password-policy", {})),
+            vendor_data=json.dumps({
+                "system password-policy": parsed.get("system password-policy", {}),
+                "system ntp": parsed.get("system ntp", {}),
+                "vpn ipsec phase1-interface": parsed.get("vpn ipsec phase1-interface", {}),
+                "vpn ipsec phase2-interface": parsed.get("vpn ipsec phase2-interface", {}),
+                "system snmp community": parsed.get("system snmp community", {}),
+                "system snmp user": parsed.get("system snmp user", {}),
+                "vpn ssl settings": parsed.get("vpn ssl settings", {}),
+                "firewall local-in-policy": parsed.get("firewall local-in-policy", {}),
+            }),
         )
         session.add(device)
         session.flush()  # get device.id

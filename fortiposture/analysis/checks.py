@@ -487,7 +487,12 @@ def check_weak_password_policy(device: Device, session: Session) -> List[Finding
     Requires: Device.vendor_data (JSON Text column) storing parsed "system password-policy" dict.
     """
     try:
-        pwd_policy = json.loads(device.vendor_data or "{}")
+        vd = json.loads(device.vendor_data or "{}")
+        # Support both old format (flat dict) and new format (nested with key)
+        if "system password-policy" in vd:
+            pwd_policy = vd["system password-policy"]
+        else:
+            pwd_policy = vd  # backward compat with old DB rows
     except (ValueError, TypeError):
         pwd_policy = {}
 

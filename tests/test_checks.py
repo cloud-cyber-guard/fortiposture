@@ -224,3 +224,20 @@ def test_geoblock_present_in_deny_not_flagged(db_session):
     # geoblock_bypass.conf (created in Task 6) has geo objects in deny rules.
     # For now, skip this test — it will be enabled in Task 6.
     pytest.skip("Requires geoblock_bypass.conf from Task 6")
+
+
+def test_vendor_data_has_password_policy_key(db_session):
+    """After Task 5, vendor_data is a nested dict with 'system password-policy' key."""
+    devices = ingest_fixture("simple_policy.conf", db_session)
+    device = devices[0]
+    vd = json.loads(device.vendor_data or "{}")
+    # New format: must have 'system password-policy' as a key
+    assert "system password-policy" in vd
+
+
+def test_vendor_data_has_ntp_key(db_session):
+    """vendor_data must contain 'system ntp' key (even if empty)."""
+    devices = ingest_fixture("simple_policy.conf", db_session)
+    device = devices[0]
+    vd = json.loads(device.vendor_data or "{}")
+    assert "system ntp" in vd
