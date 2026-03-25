@@ -1,6 +1,6 @@
 # Security Checks Reference
 
-This document describes all 11 security checks performed by `fortiposture`, including detection logic, evidence format, remediation guidance, and compliance mappings.
+This document describes all 19 security checks performed by `fortiposture`, including detection logic, evidence format, remediation guidance, and compliance mappings.
 
 ---
 
@@ -21,6 +21,20 @@ This document describes all 11 security checks performed by `fortiposture`, incl
   - [LOGGING_NOT_CONFIGURED](#logging_not_configured)
 - [Password Policy Checks](#password-policy-checks)
   - [WEAK_PASSWORD_POLICY](#weak_password_policy)
+- [Interface Checks](#interface-checks)
+  - [HTTP_ADMIN_ENABLED](#http_admin_enabled)
+  - [MANAGEMENT_ACCESS_EXPOSED](#management_access_exposed)
+- [Geographic Access Checks](#geographic-access-checks)
+  - [GEOBLOCK_ABSENT](#geoblock_absent)
+  - [GEOBLOCK_BYPASS_RISK](#geoblock_bypass_risk)
+- [Firmware Checks](#firmware-checks)
+  - [FIRMWARE_EOL](#firmware_eol)
+- [System Configuration Checks](#system-configuration-checks)
+  - [NTP_NOT_CONFIGURED](#ntp_not_configured)
+- [VPN Checks](#vpn-checks)
+  - [WEAK_CRYPTO_VPN](#weak_crypto_vpn)
+- [SNMP Checks](#snmp-checks)
+  - [SNMP_WEAK_VERSION](#snmp_weak_version)
 - [Compliance Mapping](#compliance-mapping)
 
 ---
@@ -385,28 +399,42 @@ AND policy.status == "disabled"
 
 | Field | Value |
 |-------|-------|
-| **Severity** | CRITICAL |
+| **Severity** | CRITICAL or HIGH (see severity tiers below) |
 | **Check ID** | `ADMIN_NO_MFA` |
 | **Category** | Admin accounts |
 
 **What it detects**
 
-A local-password admin account without two-factor authentication enabled. A single compromised password is sufficient to gain full administrative access to the firewall — there is no second factor to stop an attacker.
+One or more local-password admin accounts without two-factor authentication enabled. A single compromised password is sufficient to gain full administrative access to the firewall — there is no second factor to stop an attacker.
+
+One finding is raised **per device**, aggregating all affected accounts. The severity depends on the highest-privilege account affected.
+
+**Severity tiers**
+
+| Condition | Severity |
+|-----------|----------|
+| Any `super_admin` profile account lacks MFA | CRITICAL |
+| Only non-super-admin accounts lack MFA | HIGH |
 
 **Detection logic**
 
 ```
-admin.auth_type == "local"
-AND admin.two_factor_auth == False
+FOR each local admin account on the device:
+    IF admin.auth_type == "local" AND admin.two_factor_auth == False:
+        add to affected list
+
+IF any affected account has accprofile == "super_admin":
+    severity = CRITICAL
+ELSE:
+    severity = HIGH
 ```
 
 **Evidence JSON**
 
 ```json
 {
-  "username": "admin",
-  "auth_type": "local",
-  "two_factor_auth": false
+  "affected_accounts": ["admin", "readonly-user"],
+  "total_local_accounts": 3
 }
 ```
 
@@ -435,20 +463,23 @@ AND admin.two_factor_auth == False
 
 **What it detects**
 
-An admin account with no trusted hosts configured. Without trusted hosts, the management interface can be accessed from any IP address — increasing the attack surface for credential-based attacks.
+One or more admin accounts with no trusted hosts configured. Without trusted hosts, the management interface can be accessed from any IP address — increasing the attack surface for credential-based attacks.
+
+One finding is raised **per device**, aggregating all affected accounts.
 
 **Detection logic**
 
 ```
-admin.trusted_hosts == [] or null
+FOR each admin account on the device:
+    IF admin.trusted_hosts == [] or null:
+        add to affected list
 ```
 
 **Evidence JSON**
 
 ```json
 {
-  "username": "admin",
-  "trusted_hosts": []
+  "affected_accounts": ["admin", "auditor"]
 }
 ```
 
@@ -576,20 +607,510 @@ end
 
 ---
 
+## Interface Checks
+
+### HTTP_ADMIN_ENABLED
+
+| Field | Value |
+|-------|-------|
+| **Severity** | HIGH |
+| **Check ID** | `HTTP_ADMIN_ENABLED` |
+| **Category** | Interface configuration |
+
+**What it detects**
+
+HTTP is included in the `allowaccess` list for one or more interfaces, meaning the firewall management GUI is accessible over unencrypted HTTP. Administrative credentials and session tokens are transmitted in cleartext.
+
+**Detection logic**
+
+```
+FOR each interface on the device:
+    IF "http" IN interface.allowaccess:
+        raise finding
+```
+
+**Evidence JSON**
+
+```json
+{
+  "interfaces": ["port1", "mgmt"]
+}
+```
+
+**Remediation**
+
+1. Remove `http` from the `allowaccess` list on all interfaces:
+   `config system interface → edit <name> → set allowaccess https ssh`
+2. Use HTTPS only for management GUI access.
+3. If HTTP redirect is required for user experience, configure it at the application layer, not the firewall management plane.
+
+**Compliance references**
+
+- CIS FortiGate Benchmark — *Disable HTTP admin access*
+- DISA STIG FortiGate — *Use encrypted protocols for management*
+- NIST SP 800-41 — *Secure management plane communications*
+
+---
+
+### MANAGEMENT_ACCESS_EXPOSED
+
+| Field | Value |
+|-------|-------|
+| **Severity** | HIGH |
+| **Check ID** | `MANAGEMENT_ACCESS_EXPOSED` |
+| **Category** | Interface configuration |
+
+**What it detects**
+
+Management protocols (HTTPS, SSH, ping, HTTP, SNMP) are enabled on interfaces whose names indicate WAN-facing connectivity (`wan1`, `wan2`, `port1`, `untrust`, `outside`, `internet`, `external`, `uplink`). This exposes the management plane directly to the internet.
+
+**Detection logic**
+
+```
+FOR each interface on the device:
+    IF interface.name matches a WAN interface pattern:
+        IF interface.allowaccess contains any management protocol:
+            raise finding
+```
+
+WAN interface patterns (case-insensitive): `wan1`, `wan2`, `port1`, `untrust`, `outside`, `internet`, `external`, `uplink`.
+
+**Evidence JSON**
+
+```json
+{
+  "interfaces": [
+    {"name": "wan1", "allowaccess": ["https", "ping", "ssh"]},
+    {"name": "wan2", "allowaccess": ["https"]}
+  ]
+}
+```
+
+**Remediation**
+
+1. Remove all management protocols from WAN-facing interfaces:
+   `config system interface → edit wan1 → set allowaccess ping`
+2. Restrict management access to dedicated out-of-band (OOB) interfaces or a management VLAN.
+3. If remote management over WAN is required, use trusted host restrictions on admin accounts to limit access to known IP ranges.
+
+**Compliance references**
+
+- CIS FortiGate Benchmark — *Restrict management access to trusted interfaces*
+- NIST SP 800-41 — *Separate management plane from data plane*
+
+---
+
+## Geographic Access Checks
+
+### GEOBLOCK_ABSENT
+
+| Field | Value |
+|-------|-------|
+| **Severity** | MEDIUM |
+| **Check ID** | `GEOBLOCK_ABSENT` |
+| **Category** | Geographic access control |
+
+**What it detects**
+
+No geography-type address objects are referenced in deny policies. This means the firewall has no country-level blocking rules. Without geographic restrictions, traffic from high-risk regions reaches the firewall management plane and data plane uninhibited.
+
+**Detection logic**
+
+```
+geo_objects = address objects with type == "geography"
+deny_policies = firewall policies with action IN ("deny", "drop")
+
+IF len(geo_objects) == 0:
+    raise finding (no geo objects at all)
+ELIF none of the geo_objects appear in deny_policies:
+    raise finding (geo objects exist but unused in deny rules)
+```
+
+**Evidence JSON**
+
+```json
+{
+  "geo_objects_count": 0,
+  "geo_in_deny_rules": false
+}
+```
+
+**Remediation**
+
+1. Create geography-type address objects for high-risk countries:
+   `config firewall address → edit "COUNTRY-XX" → set type geography → set country XX`
+2. Add these objects to deny policies that apply to inbound traffic from WAN interfaces.
+3. Review Fortinet's threat intelligence feeds for recommended country block lists.
+
+**Compliance references**
+
+- CIS FortiGate Benchmark — *Implement geographic access restrictions*
+
+---
+
+### GEOBLOCK_BYPASS_RISK
+
+| Field | Value |
+|-------|-------|
+| **Severity** | HIGH |
+| **Check ID** | `GEOBLOCK_BYPASS_RISK` |
+| **Category** | Geographic access control |
+
+**What it detects**
+
+Geography-based blocking is active in IPv4 firewall policies (geo objects appear in deny rules), SSL VPN is enabled, but no Local-In policies reference geography objects. This is a bypass risk: IPv4 firewall deny rules do not apply to SSL VPN and management traffic — those flows are governed by Local-In policies. The geo blocking is therefore incomplete.
+
+**Detection logic**
+
+```
+geo_in_deny_rules == True        (geo blocking active in IPv4 policies)
+AND ssl_vpn_enabled == True      (SSL VPN is listening)
+AND local_in_geo_policies == 0   (no Local-In policies with geo objects)
+→ raise finding
+```
+
+**Evidence JSON**
+
+```json
+{
+  "geo_objects_defined": 3,
+  "ssl_vpn_enabled": true,
+  "local_in_geo_policies": 0
+}
+```
+
+**Remediation**
+
+1. Create Local-In policies that reference geography address objects for WAN interfaces:
+   ```
+   config firewall local-in-policy
+       edit 1
+           set intf "wan1"
+           set srcaddr "BLOCKED-COUNTRIES"
+           set dstaddr "all"
+           set action deny
+           set schedule "always"
+       next
+   end
+   ```
+2. Apply Local-In geo deny rules before any SSL VPN or management allow rules.
+3. Test that blocked-country clients cannot reach the SSL VPN portal.
+
+**Compliance references**
+
+- Fortinet KB — *Local-In policies for SSL VPN access control*
+- CIS FortiGate Benchmark — *Restrict SSL VPN access by geography*
+- DISA STIG FortiGate — *Limit remote access entry points*
+
+---
+
+## Firmware Checks
+
+### FIRMWARE_EOL
+
+| Field | Value |
+|-------|-------|
+| **Severity** | HIGH, MEDIUM, or LOW (see severity tiers below) |
+| **Check ID** | `FIRMWARE_EOL` |
+| **Category** | Firmware lifecycle |
+
+**What it detects**
+
+The FortiGate is running end-of-life or unsupported firmware. EOL firmware no longer receives security patches, leaving known vulnerabilities permanently unaddressed.
+
+**Severity tiers**
+
+| Condition | Severity |
+|-----------|----------|
+| Major version < 7.0 (e.g., 6.x, 5.x) | HIGH |
+| Version is 7.0.x or 7.1.x | MEDIUM |
+| Version string present but unparseable | LOW |
+| Version >= 7.2 | Not flagged |
+
+**Detection logic**
+
+```
+version_string = device.firmware_version
+parsed = parse major.minor from version_string
+
+IF parsed major < 7:       severity = HIGH
+ELIF minor in (0, 1):      severity = MEDIUM
+ELIF parse fails:          severity = LOW
+ELSE (>= 7.2):             no finding
+```
+
+**Evidence JSON**
+
+```json
+{
+  "raw_firmware_version": "v6.4.9,build1966,220519",
+  "parsed_version": "6.4",
+  "eol_status": "end-of-life"
+}
+```
+
+**Remediation**
+
+1. Plan an upgrade to FortiOS 7.2 or later (current long-term support branch).
+2. Review the Fortinet upgrade path tool before upgrading — intermediate versions may be required.
+3. Test the upgrade in a lab environment or during a maintenance window.
+4. After upgrade, verify all VPN tunnels, routing, and policy functionality.
+
+**Compliance references**
+
+- Fortinet Product Lifecycle — *FortiOS end-of-support dates*
+- NIST SP 800-40 Rev 3 — *Guide to Enterprise Patch Management Planning*
+
+---
+
+## System Configuration Checks
+
+### NTP_NOT_CONFIGURED
+
+| Field | Value |
+|-------|-------|
+| **Severity** | MEDIUM |
+| **Check ID** | `NTP_NOT_CONFIGURED` |
+| **Category** | System configuration |
+
+**What it detects**
+
+NTP synchronization is absent or misconfigured. This includes: the NTP configuration block is entirely absent, `ntpsync` is set to `disable`, or no NTP server addresses are configured. Inaccurate system time undermines log forensics, certificate validation, and time-based compliance controls.
+
+**Detection logic**
+
+```
+ntp_data = device.vendor_data["ntp"] (if present)
+
+IF ntp_data is absent:
+    reason = "ntp block absent"
+ELIF ntp_data["ntpsync"] == "disable":
+    reason = "ntpsync disabled"
+ELIF count of configured servers == 0:
+    reason = "no servers configured"
+ELSE:
+    no finding
+```
+
+**Evidence JSON**
+
+```json
+{
+  "ntp_block_present": false,
+  "ntpsync": null,
+  "server_count": 0,
+  "reason": "ntp block absent"
+}
+```
+
+**Remediation**
+
+```
+config system ntp
+    set ntpsync enable
+    set type custom
+    config ntpserver
+        edit 1
+            set server "pool.ntp.org"
+        next
+        edit 2
+            set server "time.cloudflare.com"
+        next
+    end
+end
+```
+
+Configure at least two NTP servers for redundancy. Prefer servers in the same geographic region as the device.
+
+**Compliance references**
+
+- PCI DSS 10.4.3 — *Time synchronization settings are applied*
+- CIS FortiGate Benchmark — *Configure NTP for accurate timekeeping*
+- NIST SP 800-41 — *Synchronize firewall clocks to a trusted time source*
+
+---
+
+## VPN Checks
+
+### WEAK_CRYPTO_VPN
+
+| Field | Value |
+|-------|-------|
+| **Severity** | HIGH or MEDIUM (see severity tiers below) |
+| **Check ID** | `WEAK_CRYPTO_VPN` |
+| **Category** | VPN configuration |
+
+**What it detects**
+
+IPSec VPN phase1 or phase2 proposals using cryptographic algorithms that are known to be weak or broken. One finding is raised per device at the worst severity observed across all VPN tunnels.
+
+**Severity tiers**
+
+| Condition | Severity |
+|-----------|----------|
+| Any tunnel uses: encryption=DES/3DES/null; hash=MD5; or DH group 1, 2, or 5 | HIGH |
+| Any tunnel uses hash=SHA-1 (with no HIGH-tier weaknesses) | MEDIUM |
+
+**Weak algorithm reference**
+
+| Algorithm type | Weak values | Reason |
+|----------------|-------------|--------|
+| Encryption | `des`, `3des`, `null` | DES/3DES broken; null = no encryption |
+| Hash/integrity | `md5` | Collision attacks; use SHA-256 or better |
+| Hash/integrity | `sha1` | Deprecated; use SHA-256 or better |
+| DH group | `1`, `2`, `5` | Key exchange too weak; use group 14+ |
+
+**Detection logic**
+
+```
+FOR each VPN phase1/phase2 on the device:
+    IF encryption in ("des", "3des", "null")
+    OR hash in ("md5")
+    OR dhgrp in (1, 2, 5):
+        severity = HIGH
+    ELIF hash == "sha1":
+        severity = MEDIUM (if no HIGH already found)
+
+Raise one finding at worst severity, listing all affected tunnels.
+```
+
+**Evidence JSON**
+
+```json
+{
+  "weak_tunnels": [
+    {
+      "tunnel_name": "branch-vpn",
+      "phase": "phase1",
+      "severity": "HIGH",
+      "weak_algorithms": ["3des", "md5", "dhgrp:2"]
+    },
+    {
+      "tunnel_name": "partner-vpn",
+      "phase": "phase2",
+      "severity": "MEDIUM",
+      "weak_algorithms": ["sha1"]
+    }
+  ]
+}
+```
+
+**Remediation**
+
+1. Update phase1 proposals to use strong algorithms:
+   ```
+   config vpn ipsec phase1-interface
+       edit <tunnel-name>
+           set proposal aes256-sha256
+           set dhgrp 14
+       next
+   end
+   ```
+2. Update phase2 proposals:
+   ```
+   config vpn ipsec phase2-interface
+       edit <tunnel-name>
+           set proposal aes256-sha256
+           set pfs enable
+           set dhgrp 14
+       next
+   end
+   ```
+3. Coordinate algorithm changes with the remote VPN peer — both ends must match.
+4. Prefer AES-256 encryption, SHA-256 or SHA-384 integrity, and DH group 14 (2048-bit) or higher.
+
+**Compliance references**
+
+- NIST SP 800-77 Rev 1 — *Guide to IPsec VPNs*
+- PCI DSS 4.2.1 — *Strong cryptography in transit*
+- DISA STIG FortiGate — *VPN cryptographic algorithm requirements*
+
+---
+
+## SNMP Checks
+
+### SNMP_WEAK_VERSION
+
+| Field | Value |
+|-------|-------|
+| **Severity** | HIGH |
+| **Check ID** | `SNMP_WEAK_VERSION` |
+| **Category** | SNMP configuration |
+
+**What it detects**
+
+SNMPv1 or SNMPv2c communities are configured on the device. Both versions use community strings as the sole authentication mechanism, with no encryption. Community strings are transmitted in cleartext and are trivial to capture on a network segment.
+
+**Note on evidence logging:** Community string values are never included in findings evidence to avoid storing credentials in the database. Only community names and status are recorded.
+
+**Detection logic**
+
+```
+snmp_data = device.vendor_data["snmp"]
+
+FOR each community in snmp_data:
+    IF community is configured (any status):
+        raise finding
+```
+
+**Evidence JSON**
+
+```json
+{
+  "communities": [
+    {"name": "public", "status": "enable"},
+    {"name": "monitoring", "status": "enable"}
+  ]
+}
+```
+
+**Remediation**
+
+1. Disable all SNMPv1/v2c communities:
+   `config system snmp community → delete <id>`
+2. Configure SNMPv3 with authentication and encryption (authPriv security level):
+   ```
+   config system snmp user
+       edit "monitor-user"
+           set security-level auth-priv
+           set auth-proto sha256
+           set priv-proto aes256
+       next
+   end
+   ```
+3. Use unique, strong credentials for each SNMPv3 user.
+4. Restrict SNMP access to specific management host IPs.
+
+**Compliance references**
+
+- NIST SP 800-161 Rev 1 — *Cybersecurity Supply Chain Risk Management*
+- CIS FortiGate Benchmark — *Disable SNMPv1/v2c*
+- PCI DSS 2.2.7 — *All non-console administrative access is encrypted*
+
+---
+
 ## Compliance Mapping
 
 Quick reference: which checks map to which compliance frameworks.
 
-| Check ID | NIST SP 800-41 | NIST SP 800-63B | NIST SP 800-92 | PCI DSS | CIS FortiGate | DISA STIG |
-|----------|:--------------:|:----------------:|:--------------:|:-------:|:-------------:|:---------:|
-| `ANY_ANY_RULE` | ✓ | | | 1.2.1 | 1.1.1 | |
-| `LOGGING_DISABLED` | | | ✓ | 10.2 | 1.2 | |
-| `SHADOWED_RULE` | ✓ | | | | ✓ | |
-| `RISKY_SERVICE_EXPOSED` | | | | | ✓ | ✓ |
-| `MISSING_DENY_ALL` | ✓ | | | 1.2.1 | 1.1.2 | |
-| `BROAD_DESTINATION` | ✓ | | | | | |
-| `DISABLED_POLICY` | | | | | ✓ | |
-| `ADMIN_NO_MFA` | | ✓ | | 8.3 | 1.3 | |
-| `ADMIN_UNRESTRICTED_ACCESS` | | | | | ✓ | |
-| `LOGGING_NOT_CONFIGURED` | | | ✓ | 10.5 | | |
-| `WEAK_PASSWORD_POLICY` | | ✓ | | | 1.3 | |
+| Check ID | NIST SP 800-41 | NIST SP 800-63B | NIST SP 800-92 | NIST SP 800-77 | NIST SP 800-40 | PCI DSS | CIS FortiGate | DISA STIG |
+|----------|:--------------:|:----------------:|:--------------:|:--------------:|:--------------:|:-------:|:-------------:|:---------:|
+| `ANY_ANY_RULE` | ✓ | | | | | 1.2.1 | 1.1.1 | |
+| `LOGGING_DISABLED` | | | ✓ | | | 10.2 | 1.2 | |
+| `SHADOWED_RULE` | ✓ | | | | | | ✓ | |
+| `RISKY_SERVICE_EXPOSED` | | | | | | | ✓ | ✓ |
+| `MISSING_DENY_ALL` | ✓ | | | | | 1.2.1 | 1.1.2 | |
+| `BROAD_DESTINATION` | ✓ | | | | | | | |
+| `DISABLED_POLICY` | | | | | | | ✓ | |
+| `ADMIN_NO_MFA` | | ✓ | | | | 8.3 | 1.3 | |
+| `ADMIN_UNRESTRICTED_ACCESS` | | | | | | | ✓ | |
+| `LOGGING_NOT_CONFIGURED` | | | ✓ | | | 10.5 | | |
+| `WEAK_PASSWORD_POLICY` | | ✓ | | | | | 1.3 | |
+| `HTTP_ADMIN_ENABLED` | ✓ | | | | | | ✓ | ✓ |
+| `MANAGEMENT_ACCESS_EXPOSED` | ✓ | | | | | | ✓ | |
+| `GEOBLOCK_ABSENT` | | | | | | | ✓ | |
+| `GEOBLOCK_BYPASS_RISK` | | | | | | | ✓ | ✓ |
+| `FIRMWARE_EOL` | | | | | ✓ | | | |
+| `NTP_NOT_CONFIGURED` | ✓ | | | | | 10.4.3 | ✓ | |
+| `WEAK_CRYPTO_VPN` | | | | ✓ | | 4.2.1 | | ✓ |
+| `SNMP_WEAK_VERSION` | | | | | | 2.2.7 | ✓ | |
