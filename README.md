@@ -46,23 +46,29 @@
 
 ## Quick Start
 
+**Windows (no Python required):** Download `fortiposture.exe` from the [latest release](https://github.com/cloud-cyber-guard/fortiposture/releases/latest) and run it directly — no installation needed.
+
+```
+.\fortiposture.exe scan --input-dir C:\configs --output report.html
+```
+
+Or just double-click / run with no arguments for the interactive wizard:
+
+```
+.\fortiposture.exe
+```
+
+**Python (pip):**
+
 ```bash
-# 1. Clone and install
-git clone https://github.com/cloud-cyber-guard/fortiposture.git
-cd fortiposture
-python -m venv .venv && source .venv/bin/activate
-pip install -e .
-
-# 2. Point it at a directory of .conf files
-python main.py scan --input-dir ./configs --output report.html
-
-# 3. Open report.html in your browser
+pip install fortiposture
+fortiposture scan --input-dir ./configs --output report.html
 ```
 
 Terminal output:
 
 ```
-fortiposture — scanning 3 file(s) in ./configs
+fortiposture — scanning 3 file(s) across 3 folder(s) in ./configs
 
   Parsing fw-core.conf ... 1 device(s)
   Parsing fw-edge.conf ... 1 device(s)
@@ -87,7 +93,17 @@ Report written: report.html
 
 ## Installation
 
-### From source (recommended for now)
+### Windows — no Python required
+
+Download `fortiposture.exe` from the [latest release](https://github.com/cloud-cyber-guard/fortiposture/releases/latest) Assets section. Copy it anywhere writable (e.g. your Desktop or `C:\Users\username\`) and run it from a command prompt. No admin rights needed.
+
+### pip
+
+```bash
+pip install fortiposture
+```
+
+### From source
 
 ```bash
 git clone https://github.com/cloud-cyber-guard/fortiposture.git
@@ -99,8 +115,8 @@ pip install -e .
 
 ### Requirements
 
-- Python 3.11+
-- Dependencies are installed automatically via `pip install -e .`
+- Python 3.11+ (not needed for the Windows `.exe`)
+- Dependencies are installed automatically via `pip install`
 
 | Package | Purpose |
 |---------|---------|
@@ -108,17 +124,19 @@ pip install -e .
 | `typer >= 0.12` | CLI argument parsing |
 | `rich >= 13.0` | Terminal formatting and tables |
 | `alembic >= 1.13` | Database migrations |
+| `questionary >= 2.0` | Interactive wizard prompts |
 
 For FortiManager export only:
 
 ```bash
-pip install -e ".[fmg]"   # adds pyfortimanager
+pip install "fortiposture[fmg]"   # adds pyfortimanager
 ```
 
 ### Verify installation
 
 ```bash
-python main.py --help
+fortiposture --help
+# or: python main.py --help
 ```
 
 ---
@@ -148,25 +166,43 @@ configs/
 
 ## Usage
 
+### Interactive mode
+
+Run with no arguments to launch the interactive wizard:
+
+```bash
+fortiposture
+# or on Windows: .\fortiposture.exe
+```
+
+```
+? What would you like to do?  > Scan .conf files
+? Input folder path (leave blank for current folder):
+? Output format:  > HTML report / CSV export / Both
+? Output file name (leave blank for report.html):
+```
+
 ### scan command
 
 ```bash
-python main.py scan --input-dir <path> --output <report.html>
+fortiposture scan --input-dir <path> --output <report.html>
 ```
 
-Scans all `.conf` files in `--input-dir`, runs all security checks, and writes an HTML report.
+Scans all `.conf` files in `--input-dir` (including subdirectories), runs all security checks, and writes an HTML report.
 
 ### All options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--input-dir` / `-i` | *(required)* | Directory containing `.conf` files |
+| `--input-dir` / `-i` | *(optional — wizard if omitted)* | Directory containing `.conf` files |
 | `--output` / `-o` | `report.html` | Output HTML report path |
 | `--db` | `fortiposture.db` | SQLite database path |
 | `--csv` | — | Export all findings to a single CSV file |
 | `--csv-dir` | — | Export per-device CSV files to this directory |
 | `--severity` | — | Filter findings to this severity and above (`CRITICAL`/`HIGH`/`MEDIUM`/`LOW`) |
 | `--device` | — | Only report on devices matching this hostname (substring) |
+| `--depth` | `5` | Max subdirectory nesting depth (`0` = root only) |
+| `--max-folders` | `100` | Max total folders to visit (safety cap) |
 | `--fresh` | `false` | Drop and recreate the database before scanning |
 | `--no-color` | `false` | Disable color terminal output |
 | `--quiet` / `-q` | `false` | Suppress progress output; only print errors |
@@ -384,7 +420,8 @@ fortiposture/
 ├── requirements.txt
 ├── fortiposture/
 │   ├── __init__.py
-│   ├── cli.py                      # typer app (scan command)
+│   ├── cli.py                      # typer app (scan command + interactive wizard)
+│   ├── utils.py                    # find_conf_files — recursive .conf discovery
 │   ├── database.py                 # engine, session factory
 │   ├── parser/
 │   │   ├── conf_parser.py          # .conf → nested dict
@@ -410,7 +447,8 @@ fortiposture/
 │   ├── test_normalizer.py
 │   ├── test_schema.py
 │   ├── test_checks.py
-│   └── test_output.py
+│   ├── test_output.py
+│   └── test_utils.py
 └── docs/
     ├── checks.md                   # detailed check reference
     └── architecture.md             # pipeline and data flow
