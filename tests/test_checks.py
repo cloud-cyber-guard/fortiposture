@@ -384,3 +384,37 @@ def test_strong_vpn_not_flagged(db_session):
     devices = ingest_fixture("strong_vpn.conf", db_session)
     findings = run_all_checks(devices[0], db_session)
     assert not any(f.check_id == "WEAK_CRYPTO_VPN" for f in findings)
+
+
+def test_snmp_v2c_flagged(db_session):
+    """SNMPv2c communities present → SNMP_WEAK_VERSION HIGH."""
+    devices = ingest_fixture("weak_snmp.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    snmp_findings = [f for f in findings if f.check_id == "SNMP_WEAK_VERSION"]
+    assert len(snmp_findings) == 1
+    assert snmp_findings[0].severity == "HIGH"
+
+
+def test_snmp_community_string_not_in_evidence(db_session):
+    """Community string value must NOT appear in Finding evidence."""
+    devices = ingest_fixture("weak_snmp.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    snmp_finding = next(f for f in findings if f.check_id == "SNMP_WEAK_VERSION")
+    ev = json.loads(snmp_finding.evidence)
+    for comm in ev.get("communities", []):
+        assert "string" not in comm  # string key must not exist in evidence
+
+
+def test_snmp_v3_only_not_flagged(db_session):
+    """SNMPv3 only (no communities) → no SNMP_WEAK_VERSION."""
+    import json as _json
+    devices = ingest_fixture("weak_snmp.conf", db_session)
+    device = devices[0]
+    vd = _json.loads(device.vendor_data or "{}")
+    # Remove communities, add v3 user
+    vd["system snmp community"] = {}
+    vd["system snmp user"] = {"v3admin": {"name": "v3admin", "security-level": "auth-priv"}}
+    device.vendor_data = _json.dumps(vd)
+    db_session.commit()
+    findings = run_all_checks(device, db_session)
+    assert not any(f.check_id == "SNMP_WEAK_VERSION" for f in findings)

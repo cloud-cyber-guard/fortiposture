@@ -1057,6 +1057,63 @@ def check_weak_crypto_vpn(device: Device, session: Session) -> List[Finding]:
     )]
 
 
+def check_snmp_weak_version(device: Device, session: Session) -> List[Finding]:
+    """Flag SNMPv1/v2c communities (no authentication or encryption).
+
+    SECURITY: Community string values are never included in evidence.
+    """
+    try:
+        vd = json.loads(device.vendor_data or "{}")
+    except (ValueError, TypeError):
+        vd = {}
+
+    communities = vd.get("system snmp community", {})
+    snmp_users = vd.get("system snmp user", {})
+
+    if not communities:
+        return []  # No v1/v2c communities
+
+    # Build evidence WITHOUT community string values
+    community_evidence = []
+    for comm_id, comm_data in communities.items():
+        if not isinstance(comm_data, dict):
+            continue
+        community_evidence.append({
+            "id": comm_id,
+            "name": comm_data.get("name", "[unnamed]"),
+            "status": comm_data.get("status", "unknown"),
+            # string value intentionally OMITTED — never log credentials
+        })
+
+    has_v3 = bool(snmp_users)
+
+    return [Finding(
+        device_id=device.id,
+        check_id="SNMP_WEAK_VERSION",
+        severity="HIGH",
+        title=f"SNMPv1/v2c configured ({len(community_evidence)} community/communities)",
+        description=(
+            f"{len(community_evidence)} SNMPv1/v2c community/communities are configured. "
+            "SNMPv1/v2c provides no authentication or encryption of SNMP traffic."
+        ),
+        remediation=(
+            "Disable SNMPv1/v2c communities. Migrate to SNMPv3 with authPriv "
+            "(authentication + encryption). Update monitoring systems before disabling old communities."
+        ),
+        standard_references=json.dumps([
+            "NIST SP 800-161 Rev 1",
+            "CIS Benchmark",
+            "PCI DSS 2.2.7",
+            "DISA STIG",
+        ]),
+        evidence=json.dumps({
+            "communities": community_evidence,
+            "snmpv3_also_configured": has_v3,
+            "note": "Community string values are redacted from evidence.",
+        }),
+    )]
+
+
 # ------------------------------------------------------------------
 # Orchestrator
 # ------------------------------------------------------------------
@@ -1080,6 +1137,7 @@ ALL_CHECKS = [
     check_firmware_eol,
     check_ntp_not_configured,
     check_weak_crypto_vpn,
+    check_snmp_weak_version,
 ]
 
 
