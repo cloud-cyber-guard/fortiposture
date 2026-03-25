@@ -152,3 +152,17 @@ def test_grade_boundaries():
     assert calculate_score(0, 3, 0, 0)[1] == "C"      # 100-30=70 → C
     assert calculate_score(0, 5, 0, 0)[1] == "D"      # 100-50=50 → D
     assert calculate_score(0, 7, 0, 0)[1] == "F"      # 100-70=30 → F
+
+
+def test_http_admin_any_interface_flagged(db_session):
+    """HTTP allowaccess on any interface → HTTP_ADMIN_ENABLED."""
+    devices = ingest_fixture("management_exposed.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    assert any(f.check_id == "HTTP_ADMIN_ENABLED" for f in findings)
+
+
+def test_https_only_not_flagged(db_session):
+    """HTTPS allowaccess (no HTTP) on internal interface → no HTTP_ADMIN_ENABLED."""
+    devices = ingest_fixture("simple_policy.conf", db_session)
+    findings = run_all_checks(devices[0], db_session)
+    assert not any(f.check_id == "HTTP_ADMIN_ENABLED" for f in findings)

@@ -120,6 +120,20 @@ def _policy_covers(broader: FirewallPolicy, narrower: FirewallPolicy) -> bool:
     return True
 
 
+def _parse_allowaccess(raw: Optional[str]) -> set:
+    """Parse Interface.allowaccess JSON into a set of lowercase protocol names.
+
+    Handles both ['https ssh ping'] (single compound string) and
+    ['https', 'ssh', 'ping'] (proper list) storage formats.
+    """
+    items = json.loads(raw or "[]")
+    result = set()
+    for item in items:
+        for part in str(item).split():
+            result.add(part.lower())
+    return result
+
+
 # ------------------------------------------------------------------
 # Individual checks
 # ------------------------------------------------------------------
@@ -544,6 +558,46 @@ def check_broad_destination(device: Device, session: Session) -> List[Finding]:
     return findings
 
 
+def check_http_admin_enabled(device: Device, session: Session) -> List[Finding]:
+    """Flag any interface that allows HTTP (unencrypted) management access."""
+    http_ifaces = []
+    for iface in device.interfaces:
+        if iface.status and iface.status.lower() == "down":
+            continue
+        protocols = _parse_allowaccess(iface.allowaccess)
+        if "http" in protocols:
+            http_ifaces.append({
+                "interface": iface.name,
+                "ip_address": iface.ip_address,
+                "allowaccess": sorted(protocols),
+            })
+
+    if not http_ifaces:
+        return []
+
+    return [Finding(
+        device_id=device.id,
+        check_id="HTTP_ADMIN_ENABLED",
+        severity="HIGH",
+        title=f"HTTP management access enabled on {len(http_ifaces)} interface(s)",
+        description=(
+            f"HTTP (unencrypted) is allowed for admin access on: "
+            f"{', '.join(i['interface'] for i in http_ifaces)}. "
+            "HTTP transmits credentials and session cookies in cleartext."
+        ),
+        remediation=(
+            "Remove 'http' from allowaccess on all interfaces. "
+            "Use only 'https' for web-based management access."
+        ),
+        standard_references=json.dumps([
+            "CIS FortiGate Benchmark 1.3",
+            "NIST SP 800-41",
+            "PCI DSS 2.2.7",
+        ]),
+        evidence=json.dumps({"http_interfaces": http_ifaces}),
+    )]
+
+
 # ------------------------------------------------------------------
 # Orchestrator
 # ------------------------------------------------------------------
@@ -560,6 +614,7 @@ ALL_CHECKS = [
     check_weak_password_policy,
     check_disabled_policy,
     check_broad_destination,
+    check_http_admin_enabled,
 ]
 
 
