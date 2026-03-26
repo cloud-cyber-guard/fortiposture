@@ -6,6 +6,8 @@ This document describes the internal design of `fortiposture` — how data flows
 
 ## Pipeline Overview
 
+![Architecture Diagram](architecture.svg)
+
 `fortiposture` is a linear pipeline. Each stage has a clean input/output contract and can be tested in isolation.
 
 ```

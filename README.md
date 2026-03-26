@@ -421,6 +421,8 @@ Use `--fresh` to wipe and recreate the database. Use `--db <path>` to maintain s
 
 ## Architecture
 
+![Architecture Diagram](docs/architecture.svg)
+
 See [docs/architecture.md](docs/architecture.md) for the full pipeline diagram and module reference.
 
 **At a glance:**
