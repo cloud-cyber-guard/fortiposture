@@ -15,10 +15,11 @@
 - [Quick Start](#quick-start)
 - [Installation](#installation)
 - [Getting Your Config Files](#getting-your-config-files)
+  - [Manual export](#option-1-manual-export)
+  - [FortiManager bulk export](#option-2-fortimanager-bulk-export-companion-script)
 - [Usage](#usage)
   - [scan command](#scan-command)
   - [All options](#all-options)
-  - [FortiManager bulk export](#fortimanager-bulk-export)
 - [Security Checks](#security-checks)
 - [Scoring & Grading](#scoring--grading)
 - [HTML Report](#html-report)
@@ -144,12 +145,6 @@ No elevated privileges are needed to **run** `fortiposture` — it only needs re
 | `alembic >= 1.13` | Database migrations |
 | `questionary >= 2.0` | Interactive wizard prompts |
 
-For FortiManager export only:
-
-```bash
-pip install "fortiposture[fmg]"   # adds pyfortimanager
-```
-
 ### Verify installation
 
 ```bash
@@ -161,7 +156,11 @@ fortiposture --help
 
 ## Getting Your Config Files
 
-`fortiposture` works with FortiGate full configuration backup files. These are the same files you get from **System > Configuration > Backup** in the FortiGate web UI, or via CLI:
+`fortiposture` analyses static FortiGate configuration backup files — it never connects to live firewalls. Before you can run a scan, you need to collect config files from your environment. You can do this manually, or use our included companion script to automate the process via FortiManager.
+
+### Option 1: Manual export
+
+These are the same files you get from **System > Configuration > Backup** in the FortiGate web UI, or via CLI:
 
 ```bash
 execute backup config tftp <filename> <tftp-server-ip>
@@ -169,17 +168,39 @@ execute backup config tftp <filename> <tftp-server-ip>
 execute backup full-config flash <filename>
 ```
 
-Save files with a `.conf` or `.txt` extension and place them in a directory. FortiManager bulk exports often use `.txt` — both formats are supported automatically.
+Save files with a `.conf` or `.txt` extension and place them in a directory:
 
 ```
 configs/
 ├── fw-core.conf
 ├── fw-edge.conf
-├── fw-dmz.conf
-└── fmg-export-branch01.txt
+└── fw-dmz.conf
 ```
 
-> **Note:** `fortiposture` never connects to live firewalls during analysis. All processing is done from the static backup file.
+### Option 2: FortiManager bulk export (companion script)
+
+If you manage multiple FortiGates through FortiManager, the repo includes a companion script (`fmg_export.py`) that connects to your FortiManager instance and downloads config backups for all managed devices in one step. This is the fastest way to collect configs at scale.
+
+```bash
+# Install the optional FortiManager dependency
+pip install "fortiposture[fmg]"
+
+# Export all managed device configs
+python fmg_export.py --host 10.1.1.1 --token <api_token> --output ./configs
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--host` | *(required)* | FortiManager IP or hostname |
+| `--token` | *(required)* | API token (never username/password) |
+| `--output` / `-o` | `./configs` | Directory to save config files |
+| `--adom` | `root` | FortiManager ADOM name |
+| `--port` | `443` | HTTPS port |
+| `--no-ssl-verify` | `false` | Disable SSL certificate verification |
+
+> **Security note:** Only API tokens are accepted. Username/password authentication is intentionally not supported.
+
+Once you have your config files collected (by either method), point `fortiposture scan` at the directory.
 
 ---
 
@@ -247,25 +268,6 @@ python main.py scan --input-dir ./configs --fresh
 # Per-device CSVs for ticket creation
 python main.py scan --input-dir ./configs --csv-dir ./findings/
 ```
-
-### FortiManager bulk export
-
-If you manage multiple FortiGates through FortiManager, use the companion script to pull all configs at once:
-
-```bash
-python fmg_export.py --host 10.1.1.1 --token <api_token> --output ./configs
-```
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--host` | *(required)* | FortiManager IP or hostname |
-| `--token` | *(required)* | API token (never username/password) |
-| `--output` / `-o` | `./configs` | Directory to save `.conf` files |
-| `--adom` | `root` | FortiManager ADOM name |
-| `--port` | `443` | HTTPS port |
-| `--no-ssl-verify` | `false` | Disable SSL certificate verification |
-
-> **Security note:** Only API tokens are accepted. Username/password authentication is intentionally not supported.
 
 ---
 
