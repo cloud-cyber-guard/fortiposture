@@ -13,6 +13,7 @@ build/
 # Claude
 CLAUDE.md
 .claude/
+docs/superpowers/
 
 # Git worktrees
 .worktrees/
