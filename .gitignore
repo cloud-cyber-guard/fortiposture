@@ -10,7 +10,7 @@ dist/
 build/
 *.egg-info/
 
-# Claude
+# IDE / tool config
 CLAUDE.md
 .claude/
 docs/superpowers/
