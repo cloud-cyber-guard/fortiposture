@@ -5,7 +5,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://www.python.org/)
 
-`fortiposture` is an open source CLI tool that ingests FortiGate firewall configuration backup files (`.conf` format), parses them, runs automated security posture checks against 19 rule categories, stores all results in a local SQLite database, and generates a self-contained HTML report. It works **entirely offline** — no live firewall connections required.
+`fortiposture` is an open source CLI tool that ingests FortiGate firewall configuration backup files (`.conf` and `.txt` formats), parses them, runs automated security posture checks against 19 rule categories, stores all results in a local SQLite database, and generates a self-contained HTML report. It works **entirely offline** — no live firewall connections required.
 
 ---
 
@@ -33,7 +33,7 @@
 
 ## Features
 
-- **Parse FortiGate `.conf` files** — handles nested config blocks, multi-value sets, quoted values, VDOM-aware configs, and varying firmware versions
+- **Parse FortiGate `.conf` and `.txt` files** — handles nested config blocks, multi-value sets, quoted values, VDOM-aware configs, and varying firmware versions; `.txt` support covers FortiManager exports
 - **19 security checks** across policy rules, admin accounts, logging, password policy, management access, geographic filtering, firmware lifecycle, NTP, VPN cryptography, and SNMP
 - **CRITICAL / HIGH / MEDIUM / LOW** severity classification with per-check remediation steps and compliance references (NIST, PCI DSS, CIS)
 - **Posture scoring** (0–100) with letter grades (A–F)
@@ -151,13 +151,14 @@ execute backup config tftp <filename> <tftp-server-ip>
 execute backup full-config flash <filename>
 ```
 
-Save files with a `.conf` extension and place them in a directory:
+Save files with a `.conf` or `.txt` extension and place them in a directory. FortiManager bulk exports often use `.txt` — both formats are supported automatically.
 
 ```
 configs/
 ├── fw-core.conf
 ├── fw-edge.conf
-└── fw-dmz.conf
+├── fw-dmz.conf
+└── fmg-export-branch01.txt
 ```
 
 > **Note:** `fortiposture` never connects to live firewalls during analysis. All processing is done from the static backup file.
@@ -176,7 +177,7 @@ fortiposture
 ```
 
 ```
-? What would you like to do?  > Scan .conf files
+? What would you like to do?  > Scan config files (.conf / .txt)
 ? Input folder path (leave blank for current folder):
 ? Output format:  > HTML report / CSV export / Both
 ? Output file name (leave blank for report.html):
@@ -188,13 +189,13 @@ fortiposture
 fortiposture scan --input-dir <path> --output <report.html>
 ```
 
-Scans all `.conf` files in `--input-dir` (including subdirectories), runs all security checks, and writes an HTML report.
+Scans all `.conf` and `.txt` files in `--input-dir` (including subdirectories), runs all security checks, and writes an HTML report.
 
 ### All options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--input-dir` / `-i` | *(optional — wizard if omitted)* | Directory containing `.conf` files |
+| `--input-dir` / `-i` | *(optional — wizard if omitted)* | Directory containing `.conf` / `.txt` config files |
 | `--output` / `-o` | `report.html` | Output HTML report path |
 | `--db` | `fortiposture.db` | SQLite database path |
 | `--csv` | — | Export all findings to a single CSV file |
@@ -406,7 +407,7 @@ See [docs/architecture.md](docs/architecture.md) for the full pipeline diagram a
 .conf files  →  Parser  →  Normalizer  →  SQLite DB  →  Checks  →  Scorer  →  Report
 ```
 
-1. **Parser** (`fortiposture/parser/conf_parser.py`) — converts raw `.conf` text into a nested Python dict; handles VDOM-aware configs, multi-value sets, quoted strings, nested blocks
+1. **Parser** (`fortiposture/parser/conf_parser.py`) — converts raw `.conf`/`.txt` text into a nested Python dict; handles VDOM-aware configs, multi-value sets, quoted strings, nested blocks
 2. **Normalizer** (`fortiposture/parser/normalizer.py`) — maps the parsed dict to SQLAlchemy ORM model instances; handles address/service/policy/admin/logging/interface ingestion; idempotent via file hash
 3. **Database** (`fortiposture/database.py`) — SQLite via SQLAlchemy ORM; all tables defined in `fortiposture/models/schema.py`
 4. **Checks** (`fortiposture/analysis/checks.py`) — 19 independent check functions, each returning a list of `Finding` objects; orchestrated by `run_all_checks()`
@@ -444,7 +445,7 @@ fortiposture/
 ├── fortiposture/
 │   ├── __init__.py
 │   ├── cli.py                      # typer app (scan command + interactive wizard)
-│   ├── utils.py                    # find_conf_files — recursive .conf discovery
+│   ├── utils.py                    # find_conf_files — recursive .conf/.txt discovery
 │   ├── database.py                 # engine, session factory
 │   ├── parser/
 │   │   ├── conf_parser.py          # .conf → nested dict
