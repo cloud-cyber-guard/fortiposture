@@ -94,11 +94,13 @@ Report written: report.html
 
 ## Installation
 
-### Windows — no Python required
+### Windows — standalone executable (no Python required)
 
-Download `fortiposture.exe` from the [latest release](https://github.com/cloud-cyber-guard/fortiposture/releases/latest) Assets section. Copy it anywhere writable (e.g. your Desktop or `C:\Users\username\`) and run it from a command prompt. No admin rights needed.
+Download `fortiposture.exe` from the [latest release](https://github.com/cloud-cyber-guard/fortiposture/releases/latest) Assets section. Copy it anywhere writable (e.g. your Desktop or `C:\Users\username\`) and run it from a command prompt. No admin rights or installation needed.
 
-### pip
+### Windows / macOS / Linux — pip install
+
+For any platform with Python 3.11+:
 
 ```bash
 pip install fortiposture
@@ -110,15 +112,15 @@ On Linux with system Python, you may need `sudo pip install fortiposture` or ins
 pip install --user fortiposture
 ```
 
-Using a virtual environment avoids permission issues entirely (recommended):
+Using a virtual environment avoids permission issues entirely (recommended on all platforms):
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install fortiposture
 ```
 
-### From source
+### From source (any platform)
 
 ```bash
 git clone https://github.com/cloud-cyber-guard/fortiposture.git
