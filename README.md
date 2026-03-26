@@ -103,6 +103,20 @@ Download `fortiposture.exe` from the [latest release](https://github.com/cloud-c
 pip install fortiposture
 ```
 
+On Linux with system Python, you may need `sudo pip install fortiposture` or install with `--user`:
+
+```bash
+pip install --user fortiposture
+```
+
+Using a virtual environment avoids permission issues entirely (recommended):
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install fortiposture
+```
+
 ### From source
 
 ```bash
@@ -112,6 +126,10 @@ python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e .
 ```
+
+### Permissions
+
+No elevated privileges are needed to **run** `fortiposture` — it only needs read access to your config files and write access to the output directory. No `sudo`, no admin rights, no network access.
 
 ### Requirements
 
