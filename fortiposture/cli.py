@@ -48,7 +48,7 @@ def _run_wizard(ctx: typer.Context) -> None:
     """Interactive wizard — fires when fortiposture is launched with no arguments."""
     action = questionary.select(
         "What would you like to do?",
-        choices=["Scan .conf files"],
+        choices=["Scan config files (.conf / .txt)"],
     ).ask()
     if action is None:
         raise typer.Exit()
@@ -104,7 +104,7 @@ _SEV_COLORS = {"CRITICAL": "red", "HIGH": "dark_orange", "MEDIUM": "blue", "LOW"
 def scan(
     input_dir: Optional[Path] = typer.Option(
         None, "--input-dir", "-i",
-        help="Directory containing .conf files.",
+        help="Directory containing .conf / .txt config files.",
     ),
     output: Path = typer.Option(
         Path("report.html"), "--output", "-o",
@@ -151,7 +151,7 @@ def scan(
         help="Max total folders to visit (safety cap).",
     ),
 ):
-    """Scan FortiGate .conf files and generate a security posture report."""
+    """Scan FortiGate config files (.conf / .txt) and generate a security posture report."""
     console = Console(no_color=no_color, stderr=False)
     err_console = Console(stderr=True, no_color=no_color)
 
@@ -177,7 +177,7 @@ def scan(
     init_db(engine)
     session = get_session(engine)
 
-    # --- Discover .conf files ---
+    # --- Discover config files ---
     scan_result = find_conf_files(input_dir, max_depth=depth, max_folders=max_folders)
     conf_files = scan_result.files
     if scan_result.limit_reached:
@@ -187,7 +187,7 @@ def scan(
             f"Use --max-folders N to increase the limit.[/yellow]"
         )
     if not conf_files:
-        err_console.print(f"[red]No .conf files found in {input_dir}[/red]")
+        err_console.print(f"[red]No config files (.conf / .txt) found in {input_dir}[/red]")
         raise typer.Exit(1)
 
     if not quiet:

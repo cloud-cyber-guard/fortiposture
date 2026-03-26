@@ -32,7 +32,7 @@ def find_conf_files(
     max_depth: int = 5,
     max_folders: int = 100,
 ) -> ConfScanResult:
-    """Recursively find .conf files under path.
+    """Recursively find .conf and .txt config files under path.
 
     Args:
         path: Root directory to search.
@@ -52,7 +52,8 @@ def find_conf_files(
             result.limit_reached = True
             return
         result.folders_visited += 1
-        result.files.extend(current.glob("*.conf"))
+        for ext in ("*.conf", "*.txt"):
+            result.files.extend(current.glob(ext))
         if depth < max_depth:
             for sub in sorted(current.iterdir()):
                 if sub.is_dir():

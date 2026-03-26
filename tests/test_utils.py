@@ -31,11 +31,11 @@ def _make_tree(tmp_path, structure):
             (tmp_path / name).write_text("config")
 
 
-def test_finds_conf_files_in_root(tmp_path):
-    _make_tree(tmp_path, {"a.conf": None, "b.conf": None, "ignore.txt": None})
+def test_finds_conf_and_txt_files_in_root(tmp_path):
+    _make_tree(tmp_path, {"a.conf": None, "b.conf": None, "export.txt": None, "ignore.csv": None})
     result = find_conf_files(tmp_path)
-    assert len(result.files) == 2
-    assert all(f.suffix == ".conf" for f in result.files)
+    assert len(result.files) == 3
+    assert all(f.suffix in (".conf", ".txt") for f in result.files)
     assert result.limit_reached is False
 
 
