@@ -41,7 +41,7 @@
 - **Self-contained HTML report** — single file, dark/light mode, sortable tables, expandable findings — no CDN or external dependencies
 - **CSV export** for integration with spreadsheets and SIEMs
 - **SQLite persistence** — results accumulate across runs; re-importing the same file is idempotent (hash-checked)
-- **FortiManager companion** (`fmg_export.py`) for bulk config export across managed devices
+- **FortiManager companion** (`fmg_export.py`) — a helper script for bulk collection of config files across a managed fleet of FortiGate devices
 
 ---
 
