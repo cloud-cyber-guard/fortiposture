@@ -162,11 +162,12 @@ def scan(
     )
 
     # Resolve and validate input_dir (may be None if wizard was not used)
-    if input_dir is not None:
-        input_dir = input_dir.resolve()
-        if not input_dir.exists() or not input_dir.is_dir():
-            err_console.print(f"[red]Error: '{input_dir}' is not a valid directory.[/red]")
-            raise typer.Exit(1)
+    if input_dir is None:
+        input_dir = Path.cwd()
+    input_dir = input_dir.resolve()
+    if not input_dir.exists() or not input_dir.is_dir():
+        err_console.print(f"[red]Error: '{input_dir}' is not a valid directory.[/red]")
+        raise typer.Exit(1)
 
     # --- Database setup ---
     engine = get_engine(db)
