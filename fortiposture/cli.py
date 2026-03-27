@@ -41,6 +41,7 @@ app = typer.Typer(
     help="FortiGate firewall configuration security posture assessment.",
     add_completion=False,
     invoke_without_command=True,
+    pretty_exceptions_enable=False,
 )
 
 
@@ -104,7 +105,13 @@ def _run_wizard(ctx: typer.Context) -> None:
 @app.callback()
 def _callback(ctx: typer.Context):
     if ctx.invoked_subcommand is None:
-        _run_wizard(ctx)
+        try:
+            _run_wizard(ctx)
+        except typer.Exit:
+            raise
+        except Exception as e:
+            Console(stderr=True).print(f"[red]Error: {e}[/red]")
+            raise typer.Exit(1)
 
 _SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 _GRADE_COLORS = {"A": "green", "B": "cyan", "C": "yellow", "D": "dark_orange", "F": "red"}
@@ -163,6 +170,23 @@ def scan(
     ),
 ):
     """Scan FortiGate config files (.conf / .txt) and generate a security posture report."""
+    try:
+        _scan_impl(
+            input_dir=input_dir, output=output, db=db, csv_out=csv_out,
+            csv_dir=csv_dir, severity=severity, device=device, fresh=fresh,
+            depth=depth, max_folders=max_folders, quiet=quiet, no_color=no_color,
+        )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        Console(stderr=True).print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+def _scan_impl(
+    input_dir, output, db, csv_out, csv_dir, severity, device,
+    fresh, depth, max_folders, quiet, no_color,
+):
     console = Console(no_color=no_color, stderr=False)
     err_console = Console(stderr=True, no_color=no_color)
 
