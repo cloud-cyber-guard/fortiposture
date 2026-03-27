@@ -87,7 +87,18 @@ def _run_wizard(ctx: typer.Context) -> None:
     if fmt in ("CSV export", "Both"):
         csv_out = output.parent / "findings.csv"
 
-    ctx.invoke(scan, input_dir=input_dir, output=output, csv_out=csv_out)
+    ctx.invoke(
+        scan,
+        input_dir=input_dir,
+        output=output,
+        csv_out=csv_out,
+        db=Path("fortiposture.db"),
+        fresh=False,
+        depth=5,
+        max_folders=100,
+        quiet=False,
+        no_color=False,
+    )
 
 
 @app.callback()
