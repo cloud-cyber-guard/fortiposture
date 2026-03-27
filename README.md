@@ -106,6 +106,12 @@ For any platform with Python 3.11+:
 pip install fortiposture
 ```
 
+If you have multiple Python versions installed, target 3.11+ explicitly:
+
+```bash
+python3.11 -m pip install fortiposture
+```
+
 On Linux with system Python, you may need `sudo pip install fortiposture` or install with `--user`:
 
 ```bash
