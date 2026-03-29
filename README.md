@@ -66,6 +66,12 @@ pip install fortiposture
 fortiposture scan --input-dir ./configs --output report.html
 ```
 
+**No config files handy?** Try the included [sample configs](docs/examples/) to see it in action:
+
+```bash
+fortiposture scan --input-dir docs/examples --output sample-report.html
+```
+
 Terminal output:
 
 ```
