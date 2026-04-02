@@ -95,7 +95,7 @@ def _run_wizard(ctx: typer.Context) -> None:
         csv_out=csv_out,
         csv_dir=None,
         severity=None,
-        device=None,
+        device_filter=None,
         db=Path("fortiposture.db"),
         fresh=False,
         depth=5,
@@ -176,7 +176,7 @@ def scan(
     try:
         _scan_impl(
             input_dir=input_dir, output=output, db=db, csv_out=csv_out,
-            csv_dir=csv_dir, severity=severity, device=device, fresh=fresh,
+            csv_dir=csv_dir, severity=severity, device=device_filter, fresh=fresh,
             depth=depth, max_folders=max_folders, quiet=quiet, no_color=no_color,
         )
     except typer.Exit:
